@@ -3,12 +3,11 @@ import json
 import shutil
 import datetime
 
+from ..helpers import get_expanded_path
+
 
 def get_data_path(config):
-    data_path = os.path.expanduser(
-        os.path.join(config['cache_path'], 'playlists')
-    )
-    return data_path
+    return get_expanded_path(config['cache_path'], append='playlists')
 
 
 def iter_spotify_reponse(spotify_client, func, *func_args, **func_kwargs):

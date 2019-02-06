@@ -13,5 +13,5 @@ def run_fzf(search_items):
         # to capture the output in the parent process
         stdout=subprocess.PIPE,
     )
-    selected = fuzzy_result.stdout.decode().strip().split()
+    selected = fuzzy_result.stdout.decode().strip().split('\n')
     return selected

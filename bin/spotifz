@@ -2,6 +2,7 @@
 
 import argparse
 import json
+import os
 
 import spotifz
 
@@ -10,7 +11,6 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=description)
     parser.add_argument('--config-path', default='~/.config/spotifz.json')
     args = parser.parse_args()
-    # TODO : os.path.expanduser
-    with open(args.config_path) as ifile:
+    with open(os.expanduser(args.config_path)) as ifile:
         config = json.loads(ifile)
     spotifz.launch(config)

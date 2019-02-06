@@ -1,14 +1,11 @@
 # The following interface screens are required
 
 Home Screen:
-  1. Devices (Preview: list of devices (same as screen 1))
+  1. Devices
   2. Currenty Playing
   3. Update Cache
-  4. Search my Library
-
-Screen 1:
-  <Show Devices>
-  Selection switches to the device
+  4. Search My Library
+  5. Play/Pause
 
 Screen 4:
   1. Search Artists

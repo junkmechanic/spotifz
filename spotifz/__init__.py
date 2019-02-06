@@ -1,8 +1,7 @@
 from .interface import screens
-from . import spotify
 
 def launch(config):
-    choice = 'home_screen'
+    choice = screens.home_screen(config)
     while choice is not None:
-        upcoming_screen = getattr(screens, 'home_screen')
-        choice = upcoming_screen()
+        upcoming_screen = getattr(screens, choice)
+        choice = upcoming_screen(config)
