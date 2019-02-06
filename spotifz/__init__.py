@@ -1,4 +1,5 @@
 from .interface import screens
+from . import spotify
 
 def launch(config):
     choice = 'home_screen'

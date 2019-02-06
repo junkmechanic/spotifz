@@ -46,11 +46,14 @@ def cache_playlists(spotify_client, config):
 def backup_data(config):
     data_path = get_data_path(config)
     if not os.path.exists(data_path):
-        return 0
+        return None
+
+    root_dir, base_dir = os.path.dirname(data_path), os.path.basename(data_path)
 
     ct = datetime.datetime.today().isoformat()
     archive_name = 'playlists_{}'.format(ct)
-    root_dir, base_dir = os.path.dirname(data_path), os.path.basename(data_path)
-    archive_path = shutil.make_archive(archive_name, format='gztar',
+    archive_path = os.path.join(root_dir, archive_name)
+
+    archive_path = shutil.make_archive(archive_path, format='gztar',
                                        root_dir=root_dir, base_dir=base_dir)
     return archive_path
