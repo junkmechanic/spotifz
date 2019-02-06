@@ -1,0 +1,15 @@
+{
+    "spotify_client": {
+        "client_id": "",
+        "client_secret": "",
+        "redirect_uri": "http://localhost/"
+    },
+    "cache_path": "",
+    "user": "",
+    "interface": {
+        "prog": "fzf",
+        "options": [
+            "--multi"
+        ]
+    }
+}

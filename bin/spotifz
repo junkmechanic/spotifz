@@ -1,0 +1,16 @@
+#!/usr/bin/env python3
+
+import argparse
+import json
+
+import spotifz
+
+if __name__ == '__main__':
+    description = "A thin spotify client for playback and library search"
+    parser = argparse.ArgumentParser(description=description)
+    parser.add_argument('--config-path', default='~/.config/spotifz.json')
+    args = parser.parse_args()
+    # TODO : os.path.expanduser
+    with open(args.config_path) as ifile:
+        config = json.loads(ifile)
+    spotifz.launch(config)
