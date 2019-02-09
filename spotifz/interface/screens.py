@@ -7,6 +7,7 @@ def home_screen(config):
         'Search Library': 'search',
         'Current Playback': 'current_playback',
         'Devices': 'list_devices',
+        'Play/Pause': 'resume',
         'Update Cache': 'update_cache',
     }
     chosen = run_fzf(list(choices.keys()))[0]
@@ -32,4 +33,19 @@ def device_actions(config):
         device_id = ifi.read()
     sp = spotify.get_spotify_client(config)
     sp.transfer_playback(device_id)
+    return 'home_screen'
+
+
+def resume(config):
+    sp = spotify.get_spotify_client(config)
+    pb = sp.current_playback()
+    if pb['is_playing']:
+        sp.pause_playback()
+    else:
+        sp.start_playback()
+    return 'home_screen'
+
+
+def update_cache(config):
+    spotify.update_cache(config)
     return 'home_screen'

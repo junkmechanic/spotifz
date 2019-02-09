@@ -6,11 +6,12 @@ import os
 
 import spotifz
 
-if __name__ == '__main__':
-    description = "A thin spotify client for playback and library search"
-    parser = argparse.ArgumentParser(description=description)
-    parser.add_argument('--config-path', default='~/.config/spotifz.json')
-    args = parser.parse_args()
-    with open(os.expanduser(args.config_path)) as ifile:
-        config = json.loads(ifile)
-    spotifz.launch(config)
+description = "A thin spotify client for playback and library search"
+parser = argparse.ArgumentParser(description=description)
+parser.add_argument('--config-path', default='~/.config/spotifz.json')
+args = parser.parse_args()
+
+with open(os.path.expanduser(args.config_path)) as ifile:
+    config = json.load(ifile)
+
+spotifz.launch(config)
