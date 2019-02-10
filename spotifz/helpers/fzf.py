@@ -1,9 +1,14 @@
+import os
 import subprocess
+from concurrent.futures import ThreadPoolExecutor
+
+from . import get_expanded_path
+
+# TODO: include fzf options. for eg. when adding multiple songs to a
+# playlist and adding preview
+
 
 def run_fzf(search_items):
-    # TODO: include fzf options. for eg. when adding multiple songs to a
-    # playlist
-
     cmd = bytes("echo '{}' | fzf".format('\n'.join(search_items)), 'utf-8')
     fuzzy_result = subprocess.run(
         [cmd],
@@ -15,3 +20,27 @@ def run_fzf(search_items):
     )
     selected = fuzzy_result.stdout.decode().strip().split('\n')
     return selected
+
+
+def run_piped_fzf(iterator_func, config):
+    fifo_path = get_expanded_path(config['cache_path'], append='fzf_fifo')
+    if os.path.exists(fifo_path):
+        os.remove(fifo_path)
+    os.mkfifo(fifo_path)
+
+    executor = ThreadPoolExecutor(max_workers=1)
+    iterator_future = executor.submit(iterator_func, config, fifo_path)
+
+    with open(fifo_path, 'r') as sink:
+        fuzzy_result = subprocess.run(
+            ['fzf'],
+            stdin=sink,
+            stdout=subprocess.PIPE
+        )
+
+    if iterator_future.exception() is not None:
+        raise iterator_future.exception()
+    executor.shutdown()
+    os.remove(fifo_path)
+
+    return fuzzy_result.stdout.decode().strip().split('\n')

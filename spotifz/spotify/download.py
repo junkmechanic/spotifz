@@ -46,8 +46,9 @@ def cache_playlists(spotify_client, config):
                                                   'track_number', 'uri'])
             track['album'] = extract_fields(trk['track']['album'],
                                             ['artists', 'id', 'name', 'uri'])
+            playlist['tracks'].append(track)
             update_reverse_dict(track_dict, track['id'], playlist['id'])
-            update_reverse_dict(album_dict, track['id'], playlist['id'])
+            update_reverse_dict(album_dict, track['album']['id'], playlist['id'])
         with open(os.path.join(data_path, playlist['id']), 'w') as ofile:
             json.dump(playlist, ofile)
     with \

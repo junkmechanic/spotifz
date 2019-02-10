@@ -1,4 +1,4 @@
-from ..helpers import get_expanded_path, run_fzf
+from ..helpers import get_expanded_path, fzf
 from .. import spotify
 
 
@@ -10,7 +10,7 @@ def home_screen(config):
         'Play/Pause': 'resume',
         'Update Cache': 'update_cache',
     }
-    chosen = run_fzf(list(choices.keys()))[0]
+    chosen = fzf.run_fzf(list(choices.keys()))[0]
     if chosen == '':
         return None
     return choices[chosen]
@@ -19,7 +19,7 @@ def home_screen(config):
 def list_devices(config):
     sp = spotify.get_spotify_client(config)
     choices = {d['name']: d['id'] for d in sp.devices()['devices']}
-    chosen = run_fzf(list(choices.keys()))[0]
+    chosen = fzf.run_fzf(list(choices.keys()))[0]
     if chosen == '':
         return 'home_screen'
     with open(get_expanded_path(config['cache_path'], 'device'), 'w') as ofi:
@@ -48,4 +48,10 @@ def resume(config):
 
 def update_cache(config):
     spotify.update_cache(config)
+    return 'home_screen'
+
+
+def search(config):
+    chosen = fzf.run_piped_fzf(spotify.sink_all_tracks, config)[0]
+    print(list(map(str.strip, chosen.split('::'))))
     return 'home_screen'

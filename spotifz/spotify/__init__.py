@@ -1,5 +1,7 @@
 import os
+import json
 import shutil
+from glob import glob
 
 from spotipy import Spotify
 from spotipy.oauth2 import SpotifyOauthError
@@ -28,3 +30,24 @@ def update_cache(config, backup=True):
     sp = get_spotify_client(config)
     cache_playlists(sp, config)
     print('Playlists data updated.')
+
+
+def sink_all_tracks(config, fifo_path):
+    data_path = get_data_path(config)
+    with open(fifo_path, 'w') as sink:
+        for p_file in glob(data_path + '/*[!.json]'):
+            with open(p_file) as ifi:
+                playlist = json.load(ifi)
+            [
+                sink.write(
+                    '{name} :: {album[name]} :: {artist_list} :: {pl} :: {id}\n'
+                    .format(
+                        artist_list=', '.join([
+                            a['name'] for a in track['artists']
+                        ]),
+                        pl=playlist['name'],
+                        **track
+                    )
+                )
+                for track in playlist['tracks']
+            ]

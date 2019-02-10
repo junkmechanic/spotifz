@@ -1,5 +1,3 @@
-# The following interface screens are required
-
 Home Screen:
   1. [x] Devices
   2. [ ] Currently Playing
