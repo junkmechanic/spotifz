@@ -5,7 +5,7 @@ from .. import spotify
 def home_screen(config):
     choices = {
         'Search Library': 'search',
-        'Current Playback': 'current_playback',
+        'Current Playback [!]': 'current_playback',
         'Devices': 'list_devices',
         'Play/Pause': 'resume',
         'Update Cache': 'update_cache',
