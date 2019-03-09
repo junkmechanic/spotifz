@@ -3,8 +3,6 @@ import traceback
 from spotipy import util
 from spotipy.oauth2 import SpotifyOAuth, SpotifyOauthError
 
-from ..helpers import get_expanded_path
-
 
 scope = ' '.join([
     'playlist-read-private',
@@ -15,10 +13,8 @@ scope = ' '.join([
 
 
 def get_token_path(config):
-    cache_path = get_expanded_path(
-        config['cache_path'],
-        append='{}_spotify.cache.json'.format(config['user'])
-    )
+    cache_path = os.path.join(config['cache_path'],
+                              '{}_spotify.cache.json'.format(config['user']))
     return cache_path
 
 

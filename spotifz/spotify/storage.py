@@ -4,11 +4,10 @@ import shutil
 import datetime
 
 from .client import get_spotify_client
-from ..helpers import get_expanded_path
 
 
 def get_data_path(config, subpaths=False):
-    data_path = get_expanded_path(config['cache_path'], append='spotify_data')
+    data_path = os.path.join(config['cache_path'], 'spotify_data')
     if not subpaths:
         return data_path
     else:

@@ -6,6 +6,5 @@ Home Screen:
   5. [ ] Search My Library
 
 TODO:
- - Move caching into its own module
  - schedule caching
  - display models

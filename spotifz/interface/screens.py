@@ -1,4 +1,6 @@
-from ..helpers import get_expanded_path, fzf
+import os
+
+from ..helpers import fzf
 from .. import spotify
 
 
@@ -22,14 +24,14 @@ def list_devices(config):
     chosen = fzf.run_fzf(list(choices.keys()))[0]
     if chosen == '':
         return 'home_screen'
-    with open(get_expanded_path(config['cache_path'], 'device'), 'w') as ofi:
+    with open(os.path.join(config['cache_path'], 'device'), 'w') as ofi:
         ofi.write(choices[chosen])
     return 'device_actions'
 
 
 def device_actions(config):
     # For now, this is just a trigger, and not a selection screen
-    with open(get_expanded_path(config['cache_path'], 'device'), 'r') as ifi:
+    with open(os.path.join(config['cache_path'], 'device'), 'r') as ifi:
         device_id = ifi.read()
     sp = spotify.get_spotify_client(config)
     sp.transfer_playback(device_id)

@@ -2,11 +2,6 @@ import os
 import subprocess
 from concurrent.futures import ThreadPoolExecutor
 
-from . import get_expanded_path
-
-# TODO: include fzf options. for eg. when adding multiple songs to a
-# playlist and adding preview
-
 
 def run_fzf(search_items):
     cmd = bytes("echo '{}' | fzf".format('\n'.join(search_items)), 'utf-8')
@@ -23,7 +18,7 @@ def run_fzf(search_items):
 
 
 def run_piped_fzf(iterator_func, config):
-    fifo_path = get_expanded_path(config['cache_path'], append='fzf_fifo')
+    fifo_path = os.path.join(config['cache_path'], 'fzf_fifo')
     if os.path.exists(fifo_path):
         os.remove(fifo_path)
     os.mkfifo(fifo_path)
