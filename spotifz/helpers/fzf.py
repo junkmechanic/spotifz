@@ -26,9 +26,16 @@ def run_piped_fzf(iterator_func, config):
     executor = ThreadPoolExecutor(max_workers=1)
     iterator_future = executor.submit(iterator_func, config, fifo_path)
 
+    preview = '''
+    echo {} |
+    awk -F " :: " -v tp=/home/ankur/\.cache/spotifz/spotify_data/tracks/ '{ print tp$5 }' |
+    xargs python -m json.tool |
+    (highlight -O ansi --syntax json || cat )
+    '''
+
     with open(fifo_path, 'r') as sink:
         fuzzy_result = subprocess.run(
-            ['fzf'],
+            ['fzf', '--preview', preview],
             stdin=sink,
             stdout=subprocess.PIPE
         )
