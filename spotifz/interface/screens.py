@@ -1,4 +1,5 @@
 import os
+import sys
 
 from ..helpers import fzf
 from .. import spotify
@@ -55,5 +56,23 @@ def update_cache(config):
 
 def search(config):
     chosen = fzf.run_piped_fzf(spotify.sink_all_tracks, config)[0]
-    print(list(map(str.strip, chosen.split('::'))))
-    return 'home_screen'
+    result = list(map(str.strip, chosen.split('::')))
+    if len(result) > 1:
+        return song_actions(result, config)
+    else:
+        return 'home_screen'
+
+
+def song_actions(result, config):
+    choices = {
+        'Play Song in Playlist': 'play_song_in_playlist',
+        'Play Album in Playlist': 'play_album_in_playlist',
+        'Play Album': 'play_album',
+    }
+    chosen = fzf.run_fzf(list(choices.keys()))[0]
+    if chosen == '':
+        return 'home_screen'
+    return getattr(sys.modules[__name__], choices[chosen])(result[-1], config)
+
+
+def play_song_in_playlist(song_id, config):

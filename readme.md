@@ -6,5 +6,6 @@ Home Screen:
   5. [ ] Search My Library
 
 TODO:
+ - selected playback
  - schedule caching
  - display models
