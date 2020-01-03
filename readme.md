@@ -20,3 +20,4 @@ Wishful thinking
 ---
  - play history
  - display models for preview
+ - screen models that store passed args and the previous screen

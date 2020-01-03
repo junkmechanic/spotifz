@@ -15,8 +15,8 @@ def home_screen(config):
     }
     chosen = fzf.run_fzf(list(choices.keys()), prompt='[Home] > ')[0]
     if chosen == '':
-        return None
-    return choices[chosen]
+        return None,
+    return choices[chosen],
 
 
 def list_devices(config):
@@ -24,19 +24,18 @@ def list_devices(config):
     choices = {d['name']: d['id'] for d in sp.devices()['devices']}
     chosen = fzf.run_fzf(list(choices.keys()), prompt='[Devices] > ')[0]
     if chosen == '':
-        return 'home_screen'
+        return 'home_screen',
     with open(os.path.join(config['cache_path'], 'device'), 'w') as ofi:
         ofi.write(choices[chosen])
-    return 'device_actions'
+    return 'device_actions',
 
 
 def device_actions(config):
-    # For now, this is just a trigger, and not a selection screen
     with open(os.path.join(config['cache_path'], 'device'), 'r') as ifi:
         device_id = ifi.read()
     sp = spotify.get_spotify_client(config)
     sp.transfer_playback(device_id)
-    return 'home_screen'
+    return 'home_screen',
 
 
 def resume(config):
@@ -46,12 +45,12 @@ def resume(config):
         sp.pause_playback()
     else:
         sp.start_playback()
-    return 'home_screen'
+    return 'home_screen',
 
 
 def update_cache(config):
     spotify.update_cache(config)
-    return 'home_screen'
+    return 'home_screen',
 
 
 def search(config):
@@ -61,7 +60,7 @@ def search(config):
     if len(result) > 1:
         return song_actions(result, config)
     else:
-        return 'home_screen'
+        return 'home_screen',
 
 
 def song_actions(result, config):
@@ -73,8 +72,10 @@ def song_actions(result, config):
     # TODO: add prompt
     chosen = fzf.run_fzf(list(choices.keys()))[0]
     if chosen == '':
-        return 'search'
-    return getattr(sys.modules[__name__], choices[chosen])(result[-1], config)
+        return 'search',
+    return choices[chosen], [result[-1], config]
+    # return getattr(sys.modules[__name__], choices[chosen])(result[-1], config)
 
 
-# def play_song_in_playlist(song_id, config):
+def play_song_in_playlist(song_id, config):
+    return 'home_screen',
