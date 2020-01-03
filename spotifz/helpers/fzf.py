@@ -34,15 +34,17 @@ def run_piped_fzf(iterator_func, config, prompt=None):
     iterator_future = executor.submit(iterator_func, config, fifo_path)
 
     cache_path = os.path.expanduser(config['cache_path'])
-    track_dir = os.path.join(cache_path, 'spotify_data/tracks')
+    track_dir = os.path.join(cache_path, 'spotify_data/tracks/')
 
+    awk_cmd = ('awk -F " :: " -v tp={}'.format(track_dir) +
+               " '{ print tp$5 }'")
     preview_template = '''
     echo {} |
-    awk -F " :: " -v tp={track_dir} '{ print tp$5 }' |
+    {} |
     xargs python -m json.tool |
     (highlight -O ansi --syntax json || cat )
     '''
-    preview = preview_template.format(track_dir=track_dir)
+    preview = preview_template.format('{}', awk_cmd)
 
     with open(fifo_path, 'r') as sink:
         fuzzy_result = subprocess.run(

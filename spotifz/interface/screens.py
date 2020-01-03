@@ -73,7 +73,7 @@ def song_actions(result, config):
     # TODO: add prompt
     chosen = fzf.run_fzf(list(choices.keys()))[0]
     if chosen == '':
-        return 'home_screen'
+        return 'search'
     return getattr(sys.modules[__name__], choices[chosen])(result[-1], config)
 
 
