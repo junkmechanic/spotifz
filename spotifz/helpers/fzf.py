@@ -3,10 +3,14 @@ import subprocess
 from concurrent.futures import ThreadPoolExecutor
 
 
-def run_fzf(search_items):
-    cmd = bytes("echo '{}' | fzf".format('\n'.join(search_items)), 'utf-8')
+def run_fzf(search_items, prompt=None):
+    if prompt is None:
+        prompt = '> '
+
+    cmd_template = "echo '{items}' | fzf --prompt='{prompt}' "
+    cmd = cmd_template.format(items=('\n'.join(search_items)), prompt=prompt)
     fuzzy_result = subprocess.run(
-        [cmd],
+        [bytes(cmd, 'utf-8')],
         # this is required as fzf needs a shell process and this child process
         # needs to inherit the input and output streams
         shell=True,
@@ -17,25 +21,32 @@ def run_fzf(search_items):
     return selected
 
 
-def run_piped_fzf(iterator_func, config):
+def run_piped_fzf(iterator_func, config, prompt=None):
     fifo_path = os.path.join(config['cache_path'], 'fzf_fifo')
     if os.path.exists(fifo_path):
         os.remove(fifo_path)
     os.mkfifo(fifo_path)
 
+    if prompt is None:
+        prompt = '> '
+
     executor = ThreadPoolExecutor(max_workers=1)
     iterator_future = executor.submit(iterator_func, config, fifo_path)
 
-    preview = '''
+    cache_path = os.path.expanduser(config['cache_path'])
+    track_dir = os.path.join(cache_path, 'spotify_data/tracks')
+
+    preview_template = '''
     echo {} |
-    awk -F " :: " -v tp=/home/ankur/\.cache/spotifz/spotify_data/tracks/ '{ print tp$5 }' |
+    awk -F " :: " -v tp={track_dir} '{ print tp$5 }' |
     xargs python -m json.tool |
     (highlight -O ansi --syntax json || cat )
     '''
+    preview = preview_template.format(track_dir=track_dir)
 
     with open(fifo_path, 'r') as sink:
         fuzzy_result = subprocess.run(
-            ['fzf', '--preview', preview],
+            ['fzf', '--prompt', prompt, '--preview', preview],
             stdin=sink,
             stdout=subprocess.PIPE
         )

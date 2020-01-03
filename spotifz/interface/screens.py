@@ -13,7 +13,7 @@ def home_screen(config):
         'Play/Pause': 'resume',
         'Update Cache': 'update_cache',
     }
-    chosen = fzf.run_fzf(list(choices.keys()))[0]
+    chosen = fzf.run_fzf(list(choices.keys()), prompt='[Home] > ')[0]
     if chosen == '':
         return None
     return choices[chosen]
@@ -22,7 +22,7 @@ def home_screen(config):
 def list_devices(config):
     sp = spotify.get_spotify_client(config)
     choices = {d['name']: d['id'] for d in sp.devices()['devices']}
-    chosen = fzf.run_fzf(list(choices.keys()))[0]
+    chosen = fzf.run_fzf(list(choices.keys()), prompt='[Devices] > ')[0]
     if chosen == '':
         return 'home_screen'
     with open(os.path.join(config['cache_path'], 'device'), 'w') as ofi:
@@ -55,7 +55,8 @@ def update_cache(config):
 
 
 def search(config):
-    chosen = fzf.run_piped_fzf(spotify.sink_all_tracks, config)[0]
+    chosen = fzf.run_piped_fzf(spotify.sink_all_tracks, config,
+                               prompt='[Search] > ')[0]
     result = list(map(str.strip, chosen.split('::')))
     if len(result) > 1:
         return song_actions(result, config)
@@ -69,10 +70,11 @@ def song_actions(result, config):
         'Play Album in Playlist': 'play_album_in_playlist',
         'Play Album': 'play_album',
     }
+    # TODO: add prompt
     chosen = fzf.run_fzf(list(choices.keys()))[0]
     if chosen == '':
         return 'home_screen'
     return getattr(sys.modules[__name__], choices[chosen])(result[-1], config)
 
 
-def play_song_in_playlist(song_id, config):
+# def play_song_in_playlist(song_id, config):
