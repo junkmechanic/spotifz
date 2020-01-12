@@ -82,7 +82,7 @@ def backup_data(config):
 
     ct = datetime.datetime.today().isoformat()
     archive_name = 'spotify_data_{}'.format(ct)
-    archive_path = os.path.join(root_dir, archive_name)
+    archive_path = os.path.join(root_dir, 'backup', archive_name)
 
     archive_path = shutil.make_archive(archive_path, format='gztar',
                                        root_dir=root_dir, base_dir=base_dir)

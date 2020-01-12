@@ -21,7 +21,7 @@ def run_fzf(search_items, prompt=None):
     return selected
 
 
-def run_piped_fzf(iterator_func, config, prompt=None):
+def run_fzf_sink(iterator_func, config, prompt=None):
     fifo_path = os.path.join(config['cache_path'], 'fzf_fifo')
     if os.path.exists(fifo_path):
         os.remove(fifo_path)
@@ -54,6 +54,7 @@ def run_piped_fzf(iterator_func, config, prompt=None):
         )
 
     if iterator_future.exception() is not None:
+        print('Something went wrong while sinking tracks!')
         raise iterator_future.exception()
     executor.shutdown()
     os.remove(fifo_path)

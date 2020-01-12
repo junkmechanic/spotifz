@@ -1,5 +1,4 @@
 import os
-import sys
 
 from ..helpers import fzf
 from .. import spotify
@@ -25,6 +24,8 @@ def list_devices(config):
     chosen = fzf.run_fzf(list(choices.keys()), prompt='[Devices] > ')[0]
     if chosen == '':
         return 'home_screen',
+    # TODO: now that arguments can be passed, could do away with writing to
+    # disk
     with open(os.path.join(config['cache_path'], 'device'), 'w') as ofi:
         ofi.write(choices[chosen])
     return 'device_actions',
@@ -54,10 +55,11 @@ def update_cache(config):
 
 
 def search(config):
-    chosen = fzf.run_piped_fzf(spotify.sink_all_tracks, config,
-                               prompt='[Search] > ')[0]
+    chosen = fzf.run_fzf_sink(spotify.sink_all_tracks, config,
+                              prompt='[Search] > ')[0]
     result = list(map(str.strip, chosen.split('::')))
     if len(result) > 1:
+        print(result)
         return song_actions(result, config)
     else:
         return 'home_screen',
@@ -69,12 +71,18 @@ def song_actions(result, config):
         'Play Album in Playlist': 'play_album_in_playlist',
         'Play Album': 'play_album',
     }
-    # TODO: add prompt
-    chosen = fzf.run_fzf(list(choices.keys()))[0]
+
+    song_name = result[0]
+    if len(song_name) > 20:
+        prompt = f'[{song_name[:20]}...] > '
+    else:
+        prompt = f'[{song_name}] > '
+
+    # TODO: escape singlke quote
+    chosen = fzf.run_fzf(list(choices.keys()), prompt=prompt)[0]
     if chosen == '':
         return 'search',
     return choices[chosen], [result[-1], config]
-    # return getattr(sys.modules[__name__], choices[chosen])(result[-1], config)
 
 
 def play_song_in_playlist(song_id, config):
