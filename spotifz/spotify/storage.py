@@ -99,6 +99,7 @@ def update_cache(config, backup=True):
     if os.path.exists(get_data_path(config)):
         shutil.rmtree(get_data_path(config))
         print('Deleted existing cache.')
+    print('Fetching the latest data. This may take a while…')
     sp = get_spotify_client(config)
     cache_data(sp, config)
     print('Playlists data updated.')
