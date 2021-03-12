@@ -81,7 +81,7 @@ def backup_data(config):
     root_dir, base_dir = os.path.dirname(data_path), os.path.basename(data_path)
 
     ct = datetime.datetime.today().isoformat()
-    archive_name = 'spotify_data_{}'.format(ct)
+    archive_name = f'spotify_data_{ct}'
     archive_path = os.path.join(root_dir, 'backup', archive_name)
 
     archive_path = shutil.make_archive(archive_path, format='gztar',
@@ -95,7 +95,7 @@ def update_cache(config, backup=True):
         if backup_path is None:
             print('No existing cache data to backup.')
         else:
-            print('Existing cache backed-up to : {}'.format(backup_path))
+            print(f'Existing cache backed-up to : {backup_path}')
     if os.path.exists(get_data_path(config)):
         shutil.rmtree(get_data_path(config))
         print('Deleted existing cache.')
