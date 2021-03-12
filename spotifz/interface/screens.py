@@ -79,7 +79,7 @@ def song_actions(result, config):
     else:
         prompt = f'[{song_name}] > '
 
-    # TODO: escape singlke quote
+    # TODO: escape single quote
     chosen = fzf.run_fzf(list(choices.keys()), prompt=prompt)[0]
     if chosen == '':
         return 'search',
