@@ -53,7 +53,7 @@ def get_access_token(config):
             access_token = user_authorize(config)
         except SpotifyOauthError as spotipy_err:
             traceback.print_exc()
-            print('\nCould not get access token : {}'.format(spotipy_err))
+            print(f'\nCould not get access token : {spotipy_err}')
             print('Check the traceback above to locate the source of error.')
             access_token = None
 

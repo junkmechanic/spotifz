@@ -36,7 +36,7 @@ def device_actions(config):
         device_id = ifi.read()
     sp = spotify.get_spotify_client(config)
     sp.transfer_playback(device_id)
-    return 'home_screen',
+    exit(0)
 
 
 def resume(config):
@@ -46,7 +46,7 @@ def resume(config):
         sp.pause_playback()
     else:
         sp.start_playback()
-    return 'home_screen',
+    exit(0)
 
 
 def update_cache(config):
@@ -67,9 +67,10 @@ def search(config):
 
 def song_actions(result, config):
     choices = {
-        'Play Song in Playlist': 'play_song_in_playlist',
-        'Play Album in Playlist': 'play_album_in_playlist',
-        'Play Album': 'play_album',
+        'Play Song': 'play_song',
+        'Play Song in Playlist (not implemented)': 'play_song_in_playlist',
+        'Play Album in Playlist (not implemented)': 'play_album_in_playlist',
+        'Play Album (not implemented)': 'play_album',
     }
 
     song_name = result[0]
@@ -78,12 +79,18 @@ def song_actions(result, config):
     else:
         prompt = f'[{song_name}] > '
 
-    # TODO: escape singlke quote
+    # TODO: escape single quote
     chosen = fzf.run_fzf(list(choices.keys()), prompt=prompt)[0]
     if chosen == '':
         return 'search',
     return choices[chosen], [result[-1], config]
 
 
-def play_song_in_playlist(song_id, config):
+def play_song(config, song_id_and_config):
+    song_id = song_id_and_config[0]
+    sp = spotify.get_spotify_client(config)
+    sp.start_playback(uris=['spotify:track:' + song_id])
+    exit(0)
+
+def play_song_in_playlist(config, song_id_and_config):
     return 'home_screen',
