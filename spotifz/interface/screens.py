@@ -36,7 +36,7 @@ def device_actions(config):
         device_id = ifi.read()
     sp = spotify.get_spotify_client(config)
     sp.transfer_playback(device_id)
-    return 'home_screen',
+    exit(0)
 
 
 def resume(config):
@@ -46,7 +46,7 @@ def resume(config):
         sp.pause_playback()
     else:
         sp.start_playback()
-    return 'home_screen',
+    exit(0)
 
 
 def update_cache(config):
@@ -90,7 +90,7 @@ def play_song(config, song_id_and_config):
     song_id = song_id_and_config[0]
     sp = spotify.get_spotify_client(config)
     sp.start_playback(uris=['spotify:track:' + song_id])
-    return 'home_screen',
+    exit(0)
 
 def play_song_in_playlist(config, song_id_and_config):
     return 'home_screen',
