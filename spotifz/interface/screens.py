@@ -67,9 +67,9 @@ def search(config):
 
 def song_actions(result, config):
     choices = {
-        'Play Song in Playlist': 'play_song_in_playlist',
-        'Play Album in Playlist': 'play_album_in_playlist',
-        'Play Album': 'play_album',
+        'Play Song in Playlist (not implemented)': 'play_song_in_playlist',
+        'Play Album in Playlist (not implemented)': 'play_album_in_playlist',
+        'Play Album (not implemented)': 'play_album',
     }
 
     song_name = result[0]
