@@ -41,7 +41,7 @@ def run_fzf_sink(iterator_func, config, prompt=None):
     preview_template = '''
     echo {} |
     {} |
-    xargs python -m json.tool |
+    xargs python3 -m json.tool |
     (highlight -O ansi --syntax json || cat )
     '''
     preview = preview_template.format('{}', awk_cmd)
