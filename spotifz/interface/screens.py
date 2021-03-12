@@ -67,6 +67,7 @@ def search(config):
 
 def song_actions(result, config):
     choices = {
+        'Play Song': 'play_song',
         'Play Song in Playlist (not implemented)': 'play_song_in_playlist',
         'Play Album in Playlist (not implemented)': 'play_album_in_playlist',
         'Play Album (not implemented)': 'play_album',
@@ -85,5 +86,11 @@ def song_actions(result, config):
     return choices[chosen], [result[-1], config]
 
 
-def play_song_in_playlist(song_id, config):
+def play_song(config, song_id_and_config):
+    song_id = song_id_and_config[0]
+    sp = spotify.get_spotify_client(config)
+    sp.start_playback(uris=['spotify:track:' + song_id])
+    return 'home_screen',
+
+def play_song_in_playlist(config, song_id_and_config):
     return 'home_screen',

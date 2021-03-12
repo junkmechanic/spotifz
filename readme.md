@@ -12,9 +12,10 @@ Home Screen:
   5. [x] Search My Library
 
 Selected Song:
-  1. [ ] Play song in playlist
-  2. [ ] Play album in playlist
-  3. [ ] Play album
+  1. [x] Play song
+  2. [ ] Play song in playlist
+  3. [ ] Play album in playlist
+  4. [ ] Play album
 
 Wishful thinking
 ---
