@@ -3,7 +3,7 @@ from .interface import screens
 
 def launch(config):
     # this is not as safe as sanitizing paths during usage, but its a
-    # compromize given this function is the sole entrypoint fow now.
+    # compromize given this function is the sole entrypoint for now.
     config['cache_path'] = get_expanded_path(config['cache_path'])
     choice, *screen_args = screens.home_screen(config)
     while choice is not None:

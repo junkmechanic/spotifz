@@ -7,7 +7,6 @@ from .. import spotify
 def home_screen(config):
     choices = {
         'Search Library': 'search',
-        'Current Playback [!]': 'current_playback',
         'Devices': 'list_devices',
         'Play/Pause': 'resume',
         'Update Cache': 'update_cache',
@@ -24,25 +23,29 @@ def list_devices(config):
     chosen = fzf.run_fzf(list(choices.keys()), prompt='[Devices] > ')[0]
     if chosen == '':
         return 'home_screen',
-    # TODO: now that arguments can be passed, could do away with writing to
-    # disk
-    with open(os.path.join(config['cache_path'], 'device'), 'w') as ofi:
-        ofi.write(choices[chosen])
-    return 'device_actions',
+    return 'device_actions', choices[chosen]
 
 
-def device_actions(config):
-    with open(os.path.join(config['cache_path'], 'device'), 'r') as ifi:
-        device_id = ifi.read()
+def device_actions(config, device_id):
+    """
+    For now, there is just one action
+    """
     sp = spotify.get_spotify_client(config)
     sp.transfer_playback(device_id)
+    config['active_device_id'] = device_id
+    if config.get('last_screen') is not None:
+        return config.get('last_screen'), *config.get('last_screen_args')
     return 'home_screen',
 
 
 def resume(config):
     sp = spotify.get_spotify_client(config)
-    pb = sp.current_playback()
-    if pb['is_playing']:
+    playback = sp.current_playback()
+    if playback is None:
+        if config.get('active_device_id') is None:
+            return 'list_devices',
+        sp.start_playback(device_id=config['active_device_id'])
+    elif playback['is_playing']:
         sp.pause_playback()
     else:
         sp.start_playback()
@@ -60,30 +63,39 @@ def search(config):
     result = list(map(str.strip, chosen.split('::')))
     if len(result) > 1:
         print(result)
-        return song_actions(result, config)
+        return 'track_actions', result
     else:
         return 'home_screen',
 
 
-def song_actions(result, config):
+def track_actions(config, track_props):
     choices = {
-        'Play Song in Playlist': 'play_song_in_playlist',
-        'Play Album in Playlist': 'play_album_in_playlist',
-        'Play Album': 'play_album',
+        'Play Track in Playlist': 'play_track_in_playlist',
+        'Play Track': 'play_track',
     }
 
-    song_name = result[0]
-    if len(song_name) > 20:
-        prompt = f'[{song_name[:20]}...] > '
+    track_name = track_props[0].replace("'", "")
+    if len(track_name) > 20:
+        prompt = f'[{track_name[:20]}...] > '
     else:
-        prompt = f'[{song_name}] > '
+        prompt = f'[{track_name}] > '
 
-    # TODO: escape singlke quote
     chosen = fzf.run_fzf(list(choices.keys()), prompt=prompt)[0]
     if chosen == '':
         return 'search',
-    return choices[chosen], [result[-1], config]
+    return choices[chosen], track_props
 
 
-def play_song_in_playlist(song_id, config):
-    return 'home_screen',
+def play_track_in_playlist(config, track_props):
+    track_id, playlist_id = track_props[-1], track_props[-2]
+    sp = spotify.get_spotify_client(config)
+    sp.start_playback(context_uri=f"spotify:playlist:{playlist_id}",
+                      offset={"uri": f"spotify:track:{track_id}"})
+    return 'search',
+
+
+def play_track(config, track_props):
+    track_id = track_props[-1]
+    sp = spotify.get_spotify_client(config)
+    sp.start_playback(uris=[f"spotify:track:{track_id}"])
+    return 'search',

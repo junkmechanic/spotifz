@@ -7,6 +7,9 @@ from .client import get_spotify_client
 
 
 def get_data_path(config, subpaths=False):
+    """
+    Helper function returning paths
+    """
     data_path = os.path.join(config['cache_path'], 'spotify_data')
     if not subpaths:
         return data_path
@@ -30,6 +33,10 @@ def extract_fields(src_dict, fields):
 
 
 def cache_data(spotify_client, config):
+    """
+    Creates a directory each for albums, tracks and playlists by iterating through each
+    track in every playlist defined by the user
+    """
     for dir_path in get_data_path(config, subpaths=True):
         if not os.path.exists(dir_path):
             os.mkdir(dir_path)

@@ -36,8 +36,10 @@ def run_fzf_sink(iterator_func, config, prompt=None):
     cache_path = os.path.expanduser(config['cache_path'])
     track_dir = os.path.join(cache_path, 'spotify_data/tracks/')
 
+    # The `$6` refers to the 6th element separated by `::` which is `track_id`
+    # Refer to function `sink_all_tracks()` in `../spotify/sink/py`
     awk_cmd = ('awk -F " :: " -v tp={}'.format(track_dir) +
-               " '{ print tp$5 }'")
+               " '{ print tp$6 }'")
     preview_template = '''
     echo {} |
     {} |

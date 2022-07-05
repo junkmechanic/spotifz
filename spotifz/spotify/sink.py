@@ -7,8 +7,7 @@ from .storage import get_data_path
 def sink_all_tracks(config, fifo_path):
     _, pl_path, _, _ = get_data_path(config, subpaths=True)
 
-    song_template = ('{name} :: {album[name]} :: {artist_list} :: {pl} :: {id}'
-                     '\n')
+    song_template = '{name} :: {album[name]} :: {artist_list} :: {pl} :: {pl_id} :: {id}\n'
 
     with open(fifo_path, 'w') as sink:
         for p_file in glob(pl_path + '/*[!.json]'):
@@ -20,6 +19,7 @@ def sink_all_tracks(config, fifo_path):
                         artist_list=', '.join([artist['name'] for artist in
                                                track['artists']]),
                         pl=playlist['name'],
+                        pl_id=playlist['id'],
                         **track
                     )
                 )
