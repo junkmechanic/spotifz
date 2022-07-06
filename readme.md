@@ -1,6 +1,6 @@
 Find songs in your Spotify playlists
 
-[![](/assets/search_demo.gif)](https://junkmechanic.github.io/)
+[![](/assets/search_demo.gif)](https://junkmechanic.github.io/searching-in-spotify-playlists-with-fzf/)
 
 Features
 ---
