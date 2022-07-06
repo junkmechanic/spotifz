@@ -6,7 +6,7 @@ Features
 ---
 Home Screen:
   1. [x] Devices
-  2. [ ] Current Playback
+  2. [x] Current Playback
   3. [x] Update Cache
   4. [x] Play/Pause
   5. [x] Search My Library

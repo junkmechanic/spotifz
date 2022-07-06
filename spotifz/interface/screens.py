@@ -7,6 +7,7 @@ from .. import spotify
 def home_screen(config):
     choices = {
         'Search Library': 'search',
+        'Current Playback': 'current_playback',
         'Devices': 'list_devices',
         'Play/Pause': 'resume',
         'Update Cache': 'update_cache',
@@ -15,6 +16,17 @@ def home_screen(config):
     if chosen == '':
         return None,
     return choices[chosen],
+
+
+def current_playback(config):
+    sp = spotify.get_spotify_client(config)
+    playback = sp.current_playback()
+    track_name = 'Track : ' +  playback['item']['name']
+    album = 'Album : ' +  playback['item']['album']['name']
+    artists = 'Artist : ' + ' ; '.join([artist['name'] for artist in playback['item']['artists']])
+    device = 'Device : ' + playback['device']['name']
+    chosen = fzf.run_fzf([track_name, album, artists, device], prompt='Playback > ')[0]
+    return 'home_screen', 
 
 
 def list_devices(config):
