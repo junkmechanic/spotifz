@@ -1,5 +1,3 @@
-import os
-
 from ..helpers import fzf
 from .. import spotify
 
@@ -25,8 +23,8 @@ def current_playback(config):
     album = 'Album : ' +  playback['item']['album']['name']
     artists = 'Artist : ' + ' ; '.join([artist['name'] for artist in playback['item']['artists']])
     device = 'Device : ' + playback['device']['name']
-    chosen = fzf.run_fzf([track_name, album, artists, device], prompt='Playback > ')[0]
-    return 'home_screen', 
+    fzf.run_fzf([track_name, album, artists, device], prompt='Playback > ')[0]
+    return 'home_screen',
 
 
 def list_devices(config):
