@@ -1,4 +1,4 @@
-Find songs in your Spotify playlists
+Fuzzy search songs in your Spotify playlists using [fzf](https://github.com/junegunn/fzf) in the terminal
 
 [![](/assets/search_demo.gif)](https://junkmechanic.github.io/searching-in-spotify-playlists-with-fzf/)
 

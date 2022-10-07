@@ -38,21 +38,20 @@ def run_fzf_sink(iterator_func, config, prompt=None):
 
     # The `$6` refers to the 6th element separated by `::` which is `track_id`
     # Refer to function `sink_all_tracks()` in `../spotify/sink/py`
-    awk_cmd = ('awk -F " :: " -v tp={}'.format(track_dir) +
-               " '{ print tp$6 }'")
-    preview_template = '''
+    awk_cmd = 'awk -F " :: " -v tp={}'.format(track_dir) + " '{ print tp$6 }'"
+    preview_template = """
     echo {} |
     {} |
     xargs python -m json.tool |
     (highlight -O ansi --syntax json || cat )
-    '''
+    """
     preview = preview_template.format('{}', awk_cmd)
 
     with open(fifo_path, 'r') as sink:
         fuzzy_result = subprocess.run(
             ['fzf', '--prompt', prompt, '--preview', preview],
             stdin=sink,
-            stdout=subprocess.PIPE
+            stdout=subprocess.PIPE,
         )
 
     if iterator_future.exception() is not None:

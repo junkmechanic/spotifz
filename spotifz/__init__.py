@@ -1,6 +1,7 @@
 from .helpers import get_expanded_path
 from .interface import screens
 
+
 def launch(config):
     # this is not as safe as sanitizing paths during usage, but its a
     # compromize given this function is the sole entrypoint for now.

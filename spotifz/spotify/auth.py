@@ -4,17 +4,20 @@ from spotipy import util
 from spotipy.oauth2 import SpotifyOAuth, SpotifyOauthError
 
 
-scope = ' '.join([
-    'playlist-read-private',
-    'user-modify-playback-state',
-    'user-read-currently-playing',
-    'user-read-playback-state',
-])
+scope = ' '.join(
+    [
+        'playlist-read-private',
+        'user-modify-playback-state',
+        'user-read-currently-playing',
+        'user-read-playback-state',
+    ]
+)
 
 
 def get_token_path(config):
-    cache_path = os.path.join(config['cache_path'],
-                              '{}_spotify.cache.json'.format(config['user']))
+    cache_path = os.path.join(
+        config['cache_path'], '{}_spotify.cache.json'.format(config['user'])
+    )
     return cache_path
 
 
