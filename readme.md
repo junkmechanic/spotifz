@@ -2,8 +2,8 @@ Fuzzy search songs in your Spotify playlists using [fzf](https://github.com/june
 
 [![](/assets/search_demo.gif)](https://junkmechanic.github.io/searching-in-spotify-playlists-with-fzf/)
 
-Features
----
+# Features
+
 Home Screen:
   1. [x] Devices
   2. [x] Current Playback
@@ -16,20 +16,25 @@ Selected Track:
   1. [x] Play track in playlist
   3. [x] Play track
 
-Wishful thinking
----
+## TODO
  - current album in playlist
  - play history
  - display models for preview
  - screen models that store passed args and the previous screen
  - current playback to lead to searching by artist, album etc as the input query to fzf
 
-Dev Setup
----
+
+# Installation
 
   1. Make sure you have set up a developer account with Spotify.
   2. Create an app on Spotify Dev and obtain the API key.
-  2. Create a virtualenv and activate it.
-  3. `pip install -r requirements.txt`
-  4. `pip install -e .`
-  5. You should be able to call `spotifz` from your shell
+  3. Copy `config.json` to `~/.config/spotifz.json` and fill in the required json fields.
+  4. Change to the root directory of this project and run `pip install .`
+  5. You should be able to call `spotifz` from your shell.
+  6. Select `Update Cache` the first time you run `spotifz`.
+
+## Dev Setup
+
+  1. Create a virtualenv and activate it.
+  2. `pip install -r requirements.txt`
+  3. `pip install -e .`

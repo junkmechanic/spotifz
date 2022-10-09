@@ -8,12 +8,19 @@ import spotifz
 
 
 def main():
-    description = "A thin spotify client for playback and library search"
+    description = 'A thin spotify client for playback and library search'
     parser = argparse.ArgumentParser(description=description)
-    parser.add_argument('--config-path', default='~/.config/spotifz.json',
-                        help='Alternate config file path')
-    parser.add_argument('-U', '--update-cache', action='store_true',
-                        help='Update spotify cache')
+    parser.add_argument(
+        '--config-path',
+        default='~/.config/spotifz.json',
+        help='Alternate config file path',
+    )
+    parser.add_argument(
+        '-U',
+        '--update-cache',
+        action='store_true',
+        help='Update spotify cache',
+    )
     args = parser.parse_args()
 
     with open(os.path.expanduser(args.config_path)) as ifile:
