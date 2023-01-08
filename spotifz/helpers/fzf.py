@@ -7,7 +7,7 @@ def run_fzf(search_items, prompt=None):
     if prompt is None:
         prompt = '> '
 
-    cmd_template = "echo '{items}' | fzf --prompt='{prompt}' "
+    cmd_template = 'echo "{items}" | fzf --prompt="{prompt}" '
     cmd = cmd_template.format(items=('\n'.join(search_items)), prompt=prompt)
     fuzzy_result = subprocess.run(
         [bytes(cmd, 'utf-8')],

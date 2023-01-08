@@ -4,11 +4,11 @@ from ..helpers import fzf
 
 def home_screen(_):
     choices = {
-        'Search Library': 'search',
-        'Current Playback': 'current_playback',
-        'Devices': 'list_devices',
-        'Play/Pause': 'resume',
-        'Update Cache': 'update_cache',
+        '[ 1 ] Search Library': 'search',
+        '[ 2 ] Current Playback': 'current_playback',
+        '[ 3 ] Devices': 'list_devices',
+        '[ 4 ] Play/Pause': 'resume',
+        '[ 5 ] Update Cache': 'update_cache',
     }
     chosen = fzf.run_fzf(list(choices.keys()), prompt='[Home] > ')[0]
     if chosen == '':
