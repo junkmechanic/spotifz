@@ -1,15 +1,12 @@
-import os
-import json
-import shutil
 import datetime
-from typing import Tuple, Union
+import json
+import os
+import shutil
 
 from .client import get_spotify_client
 
 
-def get_data_path(
-    config, subpaths=False
-) -> Union[str, Tuple[str, str, str, str]]:
+def get_data_path(config, subpaths=False):
     """
     Helper function returning paths
     """
@@ -51,11 +48,7 @@ def cache_data(spotify_client, config):
         except TypeError as e:
             # if a song is removed from the Spotify database, it might not have
             # an `id` attached to it
-            print(
-                '{error}\n{unit}\n{pl}\n'.format(
-                    dict(error=e, unit=unit, pl=playlist_name)
-                )
-            )
+            print(f'{e}\n{unit}\n{playlist_name}\n')
             return
         if os.path.exists(unit_path):
             with open(unit_path) as ifi:
