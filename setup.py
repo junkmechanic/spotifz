@@ -14,8 +14,6 @@ setup(
     keywords='spotify search fzf',
     packages=find_packages(),
     python_requires='>=3.5',
-    install_requires=[
-        'spotipy@git+ssh://git@github.com/plamere/spotipy'
-    ],
+    install_requires=['spotipy@git+ssh://git@github.com/plamere/spotipy'],
     scripts=['bin/spotifz'],
 )
