@@ -1,5 +1,5 @@
-Fuzzy search songs in your Spotify playlists using
-[fzf](https://github.com/junegunn/fzf) in the terminal
+Fuzzy search songs in your Spotify playlists using [fzf](https://github.com/junegunn/fzf)
+in the terminal
 
 [![](/assets/search_demo.gif)](https://junkmechanic.github.io/searching-in-spotify-playlists-with-fzf/)
 
@@ -25,15 +25,14 @@ Selected Track:
 - play history
 - display models for preview
 - screen models that store passed args and the previous screen
-- current playback to lead to searching by artist, album etc as the input query
-  to fzf
+- current playback to lead to searching by artist, album etc as the input query to fzf
+- using a db (perhaps sqlite) instead of json blobs on disk
 
 # Installation
 
 1. Make sure you have set up a developer account with Spotify.
 2. Create an app on Spotify Dev and obtain the API key.
-3. Copy `config.json` to `~/.config/spotifz.json` and fill in the required json
-   fields.
+3. Copy `config.json` to `~/.config/spotifz.json` and fill in the required json fields.
 4. Change to the root directory of this project and run `pip install .`
 5. You should be able to call `spotifz` from your shell.
 6. Select `Update Cache` the first time you run `spotifz`.

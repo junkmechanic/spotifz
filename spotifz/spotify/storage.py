@@ -6,20 +6,6 @@ import shutil
 from .client import get_spotify_client
 
 
-def get_data_path(config, subpaths=False):
-    """
-    Helper function returning paths
-    """
-    data_path = os.path.join(config['cache_path'], 'spotify_data')
-    if not subpaths:
-        return data_path
-    else:
-        pl_dir = os.path.join(data_path, 'playlists')
-        tr_dir = os.path.join(data_path, 'tracks')
-        al_dir = os.path.join(data_path, 'albums')
-        return data_path, pl_dir, tr_dir, al_dir
-
-
 def iter_spotify_reponse(spotify_client, func, *func_args, **func_kwargs):
     response = getattr(spotify_client, func)(*func_args, **func_kwargs)
     while response is not None:
@@ -37,10 +23,9 @@ def cache_data(spotify_client, config):
     Creates a directory each for albums, tracks and playlists by iterating through each
     track in every playlist defined by the user
     """
-    for dir_path in get_data_path(config, subpaths=True):
+    for dir_path in config['data_paths'].values():
         if not os.path.exists(dir_path):
-            os.mkdir(dir_path)
-    _, pl_dir, tr_dir, al_dir = get_data_path(config, subpaths=True)
+            os.makedirs(dir_path)
 
     def update_unit(unit_dir, unit, playlist_id, playlist_name):
         try:
@@ -77,16 +62,29 @@ def cache_data(spotify_client, config):
                 trk['track']['album'], ['artists', 'id', 'name', 'uri']
             )
             playlist['tracks'].append(track)
-            update_unit(tr_dir, track, playlist['id'], playlist['name'])
             update_unit(
-                al_dir, track['album'], playlist['id'], playlist['name']
+                config['data_paths']['track_path'],
+                track,
+                playlist['id'],
+                playlist['name'],
             )
-        with open(os.path.join(pl_dir, playlist['id']), 'w') as ofile:
+            update_unit(
+                config['data_paths']['album_path'],
+                track['album'],
+                playlist['id'],
+                playlist['name'],
+            )
+        with open(
+            os.path.join(
+                config['data_paths']['playlist_path'], playlist['id']
+            ),
+            'w',
+        ) as ofile:
             json.dump(playlist, ofile)
 
 
 def backup_data(config):
-    data_path = get_data_path(config)
+    data_path = config['data_paths']['base_path']
     if not os.path.exists(data_path):
         return None
 
@@ -111,9 +109,12 @@ def update_cache(config, backup=True):
             print('No existing cache data to backup.')
         else:
             print('Existing cache backed-up to : {}'.format(backup_path))
-    if os.path.exists(get_data_path(config)):
-        shutil.rmtree(get_data_path(config))
+
+    data_path = config['data_paths']['base_path']
+    if os.path.exists(data_path):
+        shutil.rmtree(data_path)
         print('Deleted existing cache.')
+
     sp = get_spotify_client(config)
     cache_data(sp, config)
     print('Playlists data updated.')

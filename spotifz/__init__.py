@@ -1,11 +1,11 @@
-from .helpers import get_expanded_path
+from .helpers import update_data_paths
 from .interface import screens
 
 
 def launch(config):
-    # this is not as safe as sanitizing paths during usage, but its a
-    # compromize given this function is the sole entrypoint for now.
-    config['cache_path'] = get_expanded_path(config['cache_path'])
+    # ensure that the paths are populated in the config
+    update_data_paths(config)
+
     choice, *screen_args = screens.home_screen(config)
     while choice is not None:
         upcoming_screen = getattr(screens, choice)
