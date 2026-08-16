@@ -32,10 +32,14 @@ Selected Track:
 
 1. Make sure you have set up a developer account with Spotify.
 2. Create an app on Spotify Dev and obtain the API key.
-3. Copy `config.json` to `~/.config/spotifz.json` and fill in the required json fields.
-4. Change to the root directory of this project and run `pip install .`
-5. You should be able to call `spotifz` from your shell.
-6. Select `Update Cache` the first time you run `spotifz`.
+3. In the app settings, register a redirect URI that matches `redirect_uri` in
+   your config *exactly*, including the trailing slash. Spotify no longer
+   accepts `localhost`, so use a loopback IP literal with an explicit port,
+   e.g. `http://127.0.0.1:8080/`.
+4. Copy `config.json` to `~/.config/spotifz.json` and fill in the required json fields.
+5. Change to the root directory of this project and run `pip install .`
+6. You should be able to call `spotifz` from your shell.
+7. Select `Update Cache` the first time you run `spotifz`.
 
 ## Dev Setup
 

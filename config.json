@@ -2,7 +2,7 @@
     "spotify_client": {
         "client_id": "",
         "client_secret": "",
-        "redirect_uri": "http://localhost/"
+        "redirect_uri": "http://127.0.0.1:8080/"
     },
     "cache_path": "",
     "user": "",

@@ -51,9 +51,11 @@ def cache_data(spotify_client, config):
         playlist['tracks'] = []
         for trk in iter_spotify_reponse(
             spotify_client,
-            'user_playlist_tracks',
-            spotify_client.current_user()['id'],
-            playlist_id=pl['id'],
+            'playlist_items',
+            pl['id'],
+            # the default also pulls in podcast episodes, which do not carry
+            # the album/artist fields extracted below
+            additional_types=('track',),
         ):
             track = extract_fields(
                 trk['track'], ['artists', 'id', 'name', 'track_number', 'uri']

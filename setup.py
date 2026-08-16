@@ -9,11 +9,11 @@ setup(
     author_email='khanna89ankur@gmail.com',
     classifiers=[
         'Development Status :: 4 - Beta',
-        'Programming Language :: Python :: 3.7',
+        'Programming Language :: Python :: 3.9',
     ],
     keywords='spotify search fzf',
     packages=find_packages(),
-    python_requires='>=3.5',
-    install_requires=['spotipy@git+ssh://git@github.com/plamere/spotipy'],
+    python_requires='>=3.9',
+    install_requires=['spotipy>=2.26.0'],
     scripts=['bin/spotifz'],
 )

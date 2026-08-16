@@ -1,1 +1,1 @@
--e git+https://github.com/plamere/spotipy.git#egg=spotipy
+spotipy>=2.26.0
