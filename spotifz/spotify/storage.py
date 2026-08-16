@@ -85,6 +85,29 @@ def cache_data(spotify_client, config):
             json.dump(playlist, ofile)
 
 
+KEEP_BACKUPS = 3
+
+
+def prune_backups(backup_dir, keep=KEEP_BACKUPS):
+    """
+    Backups are a full archive of the library on every cache update, so without
+    pruning they accumulate indefinitely.
+    """
+    if not os.path.exists(backup_dir):
+        return []
+
+    # The timestamp in the name sorts lexicographically, so name order is age
+    # order and does not depend on filesystem mtimes surviving a copy.
+    archives = sorted(
+        f for f in os.listdir(backup_dir) if f.startswith('spotify_data_')
+    )
+    removed = []
+    for stale in archives[:-keep] if keep else archives:
+        os.remove(os.path.join(backup_dir, stale))
+        removed.append(stale)
+    return removed
+
+
 def backup_data(config):
     data_path = config['data_paths']['base_path']
     if not os.path.exists(data_path):
@@ -94,13 +117,18 @@ def backup_data(config):
         data_path
     )
 
-    ct = datetime.datetime.today().isoformat()
+    # Avoid `:` in the filename; isoformat() is not portable across filesystems.
+    ct = datetime.datetime.today().strftime('%Y%m%dT%H%M%S')
     archive_name = 'spotify_data_{}'.format(ct)
-    archive_path = os.path.join(root_dir, 'backup', archive_name)
+    backup_dir = os.path.join(root_dir, 'backup')
+    archive_path = os.path.join(backup_dir, archive_name)
 
     archive_path = shutil.make_archive(
         archive_path, format='gztar', root_dir=root_dir, base_dir=base_dir
     )
+    pruned = prune_backups(backup_dir)
+    if pruned:
+        print('Removed {} stale backup(s).'.format(len(pruned)))
     return archive_path
 
 

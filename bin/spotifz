@@ -3,8 +3,25 @@
 import argparse
 import json
 import os
+import sys
 
 import spotifz
+from spotifz.helpers import FzfNotFound
+from spotifz.spotify.client import SpotifyAuthFailed
+
+
+def load_config(config_path):
+    path = os.path.expanduser(config_path)
+    try:
+        with open(path) as ifile:
+            return json.load(ifile)
+    except FileNotFoundError:
+        raise spotifz.ConfigError(
+            'No config file at {}\n'
+            'Copy config.json from the project root and fill it in.'.format(path)
+        )
+    except json.JSONDecodeError as e:
+        raise spotifz.ConfigError('Config at {} is not valid JSON: {}'.format(path, e))
 
 
 def main():
@@ -19,15 +36,23 @@ def main():
         '-U',
         '--update-cache',
         action='store_true',
-        help='Update spotify cache',
+        help='Update spotify cache and exit, without entering the menu',
     )
     args = parser.parse_args()
 
-    with open(os.path.expanduser(args.config_path)) as ifile:
-        config = json.load(ifile)
-
-    spotifz.launch(config)
+    try:
+        config = load_config(args.config_path)
+        if args.update_cache:
+            spotifz.update_cache(config)
+        else:
+            spotifz.launch(config)
+    except (spotifz.ConfigError, FzfNotFound, SpotifyAuthFailed) as e:
+        print(e, file=sys.stderr)
+        return 1
+    except KeyboardInterrupt:
+        return 130
+    return 0
 
 
 if __name__ == '__main__':
-    main()
+    sys.exit(main())
