@@ -1,5 +1,7 @@
 import os
 
+from .fzf import FzfNotFound, ensure_fzf  # noqa: F401
+
 
 def get_expanded_path(path_str, append=None):
     expanded_path = os.path.expanduser(path_str)
