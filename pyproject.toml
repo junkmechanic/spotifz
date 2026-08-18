@@ -1,0 +1,29 @@
+[build-system]
+requires = ['setuptools>=61.0']
+build-backend = 'setuptools.build_meta'
+
+[project]
+name = 'spotifz'
+version = '1.0.0'
+description = 'A thin wrapper to search Spotify personal library'
+readme = 'readme.md'
+requires-python = '>=3.9'
+authors = [{ name = 'Ankur Khanna', email = 'khanna89ankur@gmail.com' }]
+keywords = ['spotify', 'search', 'fzf']
+classifiers = [
+    'Development Status :: 4 - Beta',
+    'Programming Language :: Python :: 3',
+]
+dependencies = ['spotipy>=2.26.0']
+
+[project.urls]
+Homepage = 'https://github.com/junkmechanic/spotifz'
+
+[project.scripts]
+spotifz = 'spotifz.cli:main'
+
+[dependency-groups]
+dev = ['pytest>=7.0', 'ruff>=0.16']
+
+[tool.setuptools.packages.find]
+include = ['spotifz*']
