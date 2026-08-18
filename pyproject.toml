@@ -23,7 +23,20 @@ Homepage = 'https://github.com/junkmechanic/spotifz'
 spotifz = 'spotifz.cli:main'
 
 [dependency-groups]
-dev = ['pytest>=7.0', 'ruff>=0.16']
+dev = ['pre-commit>=3.0', 'pytest>=7.0', 'ruff>=0.16']
 
 [tool.setuptools.packages.find]
 include = ['spotifz*']
+
+[tool.ruff]
+line-length = 90
+
+[tool.ruff.format]
+quote-style = 'single'
+
+[tool.ruff.lint]
+# Deliberately pinned rather than left to ruff's defaults, which have grown
+# well past flake8's E4/E7/E9/F and would turn a tooling swap into a
+# behaviour-touching diff. E + F is the flake8 equivalent; I adds the import
+# sorting flake8 never had.
+select = ['E', 'F', 'I']

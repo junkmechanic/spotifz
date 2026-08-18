@@ -77,9 +77,7 @@ def cache_data(spotify_client, config):
                 playlist['name'],
             )
         with open(
-            os.path.join(
-                config['data_paths']['playlist_path'], playlist['id']
-            ),
+            os.path.join(config['data_paths']['playlist_path'], playlist['id']),
             'w',
         ) as ofile:
             json.dump(playlist, ofile)
@@ -98,9 +96,7 @@ def prune_backups(backup_dir, keep=KEEP_BACKUPS):
 
     # The timestamp in the name sorts lexicographically, so name order is age
     # order and does not depend on filesystem mtimes surviving a copy.
-    archives = sorted(
-        f for f in os.listdir(backup_dir) if f.startswith('spotify_data_')
-    )
+    archives = sorted(f for f in os.listdir(backup_dir) if f.startswith('spotify_data_'))
     removed = []
     for stale in archives[:-keep] if keep else archives:
         os.remove(os.path.join(backup_dir, stale))
@@ -113,9 +109,7 @@ def backup_data(config):
     if not os.path.exists(data_path):
         return None
 
-    root_dir, base_dir = os.path.dirname(data_path), os.path.basename(
-        data_path
-    )
+    root_dir, base_dir = os.path.dirname(data_path), os.path.basename(data_path)
 
     # Avoid `:` in the filename; isoformat() is not portable across filesystems.
     ct = datetime.datetime.today().strftime('%Y%m%dT%H%M%S')
