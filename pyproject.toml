@@ -40,3 +40,6 @@ quote-style = 'single'
 # behaviour-touching diff. E + F is the flake8 equivalent; I adds the import
 # sorting flake8 never had.
 select = ['E', 'F', 'I']
+
+[tool.pytest.ini_options]
+testpaths = ['tests']
