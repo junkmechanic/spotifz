@@ -2,6 +2,7 @@ import pytest
 from spotipy import SpotifyException
 
 from spotifz.interface import screens
+from spotifz.spotify.sink import SEPARATOR, TrackRef
 from spotifz.state import AppState
 
 
@@ -355,13 +356,15 @@ def fzf_sink(monkeypatch):
     return _install
 
 
-def test_search_splits_the_selected_line(state, fzf_sink):
-    fzf_sink('Song :: Album :: A, B :: Road Trip :: pl-1 :: track-1')
+def test_search_parses_the_selected_line_into_a_track_ref(state, fzf_sink):
+    fzf_sink(SEPARATOR.join(('Song :: Album :: A, B :: Road Trip', 'track-1', 'pl-1')))
 
-    choice, props = screens.search(state)
+    choice, track = screens.search(state)
 
     assert choice == 'track_actions'
-    assert props == ['Song', 'Album', 'A, B', 'Road Trip', 'pl-1', 'track-1']
+    assert track.track_id == 'track-1'
+    assert track.playlist_id == 'pl-1'
+    assert track.display == 'Song :: Album :: A, B :: Road Trip'
 
 
 def test_search_returns_home_when_nothing_was_selected(state, fzf_sink):
@@ -372,21 +375,23 @@ def test_search_returns_home_when_nothing_was_selected(state, fzf_sink):
 
 def test_track_actions_forwards_the_track_props(state, fzf):
     fzf('Play Track')
-    props = ['Song', 'Album', 'A', 'Road Trip', 'pl-1', 'track-1']
+    track = TrackRef('Song :: Album :: A :: Road Trip', 'track-1', 'pl-1')
 
-    assert screens.track_actions(state, props) == ('play_track', props)
+    assert screens.track_actions(state, track) == ('play_track', track)
 
 
 def test_track_actions_returns_to_search_on_an_empty_selection(state, fzf):
     fzf('')
 
-    assert screens.track_actions(state, ['Song']) == ('search',)
+    assert screens.track_actions(state, TrackRef('Song', 'track-1', 'pl-1')) == (
+        'search',
+    )
 
 
 def test_track_actions_truncates_a_long_prompt(state, fzf):
     seen = fzf('Play Track')
 
-    screens.track_actions(state, ['A' * 40])
+    screens.track_actions(state, TrackRef('A' * 40, 'track-1', 'pl-1'))
 
     assert seen['prompts'][0] == '[{}...] > '.format('A' * 20)
 
@@ -398,7 +403,9 @@ def test_play_track_starts_the_track_on_the_active_device(state, client):
     fake = client(playback=None)
     state.active_device_id = 'd1'
 
-    assert screens.play_track(state, ['Song', 'pl-1', 'track-1']) == ('search',)
+    track = TrackRef('Song', 'track-1', 'pl-1')
+
+    assert screens.play_track(state, track) == ('search',)
     assert fake.named('start_playback') == [
         ('start_playback', {'device_id': 'd1', 'uris': ['spotify:track:track-1']})
     ]
@@ -407,14 +414,16 @@ def test_play_track_starts_the_track_on_the_active_device(state, client):
 def test_play_track_redirects_when_there_is_no_device(state, client):
     fake = client(playback=None)
 
-    assert screens.play_track(state, ['Song', 'pl-1', 'track-1']) == ('list_devices',)
+    track = TrackRef('Song', 'track-1', 'pl-1')
+
+    assert screens.play_track(state, track) == ('list_devices',)
     assert fake.named('start_playback') == []
 
 
 def test_play_track_in_playlist_uses_the_playlist_as_context(state, client):
     fake = client(playback=track_playback())
 
-    result = screens.play_track_in_playlist(state, ['Song', 'pl-1', 'track-1'])
+    result = screens.play_track_in_playlist(state, TrackRef('Song', 'track-1', 'pl-1'))
 
     assert result == ('search',)
     assert fake.named('start_playback') == [
@@ -429,15 +438,17 @@ def test_play_track_in_playlist_uses_the_playlist_as_context(state, client):
     ]
 
 
-def test_play_track_in_playlist_reads_the_last_two_fields(state, client):
+def test_play_track_in_playlist_is_unaffected_by_the_separator_in_a_name(state, client):
     """
-    A name containing the ' :: ' separator adds fields at the front, so the id
-    and playlist id are addressed from the end.
+    A name containing ' :: ' used to add fields, which is why the ids were
+    addressed by negative index. They have names now, and the name is just
+    text inside the display field.
     """
     fake = client(playback=track_playback())
 
     screens.play_track_in_playlist(
-        state, ['Intro', 'Reprise', 'Album', 'A', 'Road Trip', 'pl-1', 'track-1']
+        state,
+        TrackRef('Intro :: Reprise :: Album :: A :: Road Trip', 'track-1', 'pl-1'),
     )
 
     kwargs = fake.named('start_playback')[0][1]
@@ -448,7 +459,7 @@ def test_play_track_in_playlist_reads_the_last_two_fields(state, client):
 def test_play_track_in_playlist_redirects_when_there_is_no_device(state, client):
     fake = client(playback=None)
 
-    result = screens.play_track_in_playlist(state, ['Song', 'pl-1', 'track-1'])
+    result = screens.play_track_in_playlist(state, TrackRef('Song', 'track-1', 'pl-1'))
 
     assert result == ('list_devices',)
     assert fake.named('start_playback') == []
@@ -459,7 +470,7 @@ def test_the_device_redirect_round_trips_back_to_the_original_screen(state, clie
     The whole point of recording the pending screen: picking a device has to
     resume what the user was actually trying to do.
     """
-    props = ['Song', 'Album', 'A', 'Road Trip', 'pl-1', 'track-1']
+    props = TrackRef('Song :: Album :: A :: Road Trip', 'track-1', 'pl-1')
     client(playback=None)
 
     assert screens.play_track(state, props) == ('list_devices',)
@@ -491,7 +502,7 @@ def test_a_persisted_device_that_no_longer_exists_is_forgotten(state, client):
     week. The user should get the device picker they would have got with no
     device chosen at all, not a traceback out of cli.main.
     """
-    props = ['Song', 'pl-1', 'track-1']
+    props = TrackRef('Song', 'track-1', 'pl-1')
     client(playback=None, start_error=device_gone())
     state.set_active_device('d1')
 

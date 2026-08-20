@@ -5,6 +5,10 @@ import subprocess
 import sys
 from concurrent.futures import ThreadPoolExecutor
 
+# Imported from the module rather than the package: the format's owner is
+# sink.py, and spotifz.spotify may still be initialising when this is loaded.
+from ..spotify.sink import DISPLAY_FIELD, SEPARATOR, TRACK_ID_FIELD
+
 
 class FzfNotFound(Exception):
     pass
@@ -20,20 +24,17 @@ def ensure_fzf():
 
 def preview_command(track_dir):
     """
-    The shell command fzf runs for the highlighted line, with `{}` replaced by
-    that line, single-quoted.
+    The shell command fzf runs for the highlighted line.
 
-    The track id is the sixth ' :: '-separated field -- see sink_all_tracks in
-    ../spotify/sink.py. A name containing ' :: ' shifts the fields and the
-    preview then reads the wrong one; that is a defect of the wire format
-    rather than of this command.
+    fzf substitutes `{N}` with the Nth SEPARATOR-separated field of the
+    *original* line, single-quoted -- so there is no text parsing here at all,
+    and the separator never reaches a shell. Verified against fzf 0.74.1:
+    --with-nth hides the id fields from the display and from matching, but not
+    from these placeholders.
     """
-    extract_id = "echo {} | awk -F ' :: ' '{print $6}'"
-    # The directory is quoted on its own and concatenated with a double-quoted
-    # command substitution, so a cache_path containing a space survives. The
-    # previous version interpolated it bare and piped it through xargs, which
-    # split it on whitespace.
-    track_file = shlex.quote(track_dir) + '"' + os.sep + '$(' + extract_id + ')"'
+    # The quoted directory and fzf's single-quoted field concatenate in sh,
+    # bash and zsh, so a cache_path containing a space survives.
+    track_file = shlex.quote(track_dir + os.sep) + '{' + str(TRACK_ID_FIELD) + '}'
     # sys.executable rather than a bare `python`: current macOS and most Linux
     # distributions ship only `python3`, and a preview that silently fails is
     # invisible -- fzf shows an empty pane and reports nothing.
@@ -75,7 +76,19 @@ def run_fzf_sink(iterator_func, config, prompt=None):
 
         with open(fifo_path, 'r') as sink:
             fuzzy_result = subprocess.run(
-                ['fzf', '--prompt', prompt, '--preview', preview],
+                [
+                    'fzf',
+                    '--prompt',
+                    prompt,
+                    # Show and match only the display field; the ids ride along
+                    # on the line for the preview and for the accepted result.
+                    '--delimiter',
+                    SEPARATOR,
+                    '--with-nth',
+                    str(DISPLAY_FIELD),
+                    '--preview',
+                    preview,
+                ],
                 stdin=sink,
                 stdout=subprocess.PIPE,
             )
@@ -88,4 +101,6 @@ def run_fzf_sink(iterator_func, config, prompt=None):
         if os.path.exists(fifo_path):
             os.remove(fifo_path)
 
-    return fuzzy_result.stdout.decode().strip().split('\n')
+    # strip('\n'), not strip(): 0x1f is whitespace to Python, so a bare strip
+    # would eat a separator next to an empty field.
+    return fuzzy_result.stdout.decode().strip('\n').split('\n')

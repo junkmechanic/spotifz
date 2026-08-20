@@ -181,20 +181,19 @@ def search(state):
     chosen = fzf.run_fzf_sink(
         spotify.sink_all_tracks, state.config, prompt='[Search] > '
     )[0]
-    result = list(map(str.strip, chosen.split('::')))
-    if len(result) > 1:
-        return 'track_actions', result
-    else:
+    # An empty selection -- the user hit Esc -- carries no separator.
+    if spotify.SEPARATOR not in chosen:
         return ('home_screen',)
+    return 'track_actions', spotify.parse_track_line(chosen)
 
 
-def track_actions(_, track_props):
+def track_actions(_, track):
     choices = {
         'Play Track in Playlist': 'play_track_in_playlist',
         'Play Track': 'play_track',
     }
 
-    track_name = track_props[0].replace("'", '')
+    track_name = track.name.replace("'", '')
     if len(track_name) > 20:
         prompt = f'[{track_name[:20]}...] > '
     else:
@@ -203,32 +202,30 @@ def track_actions(_, track_props):
     chosen = fzf.run_fzf(list(choices.keys()), prompt=prompt)[0]
     if chosen == '':
         return ('search',)
-    return choices[chosen], track_props
+    return choices[chosen], track
 
 
-def play_track_in_playlist(state, track_props):
-    track_id, playlist_id = track_props[-1], track_props[-2]
+def play_track_in_playlist(state, track):
     sp = spotify.get_spotify_client(state.config)
     device_id = _resolve_device(state, sp.current_playback())
     started = device_id is not None and _start_playback(
         state,
         sp,
         device_id=device_id,
-        context_uri=f'spotify:playlist:{playlist_id}',
-        offset={'uri': f'spotify:track:{track_id}'},
+        context_uri=f'spotify:playlist:{track.playlist_id}',
+        offset={'uri': f'spotify:track:{track.track_id}'},
     )
     if not started:
-        return _redirect_to_devices(state, 'play_track_in_playlist', track_props)
+        return _redirect_to_devices(state, 'play_track_in_playlist', track)
     return ('search',)
 
 
-def play_track(state, track_props):
-    track_id = track_props[-1]
+def play_track(state, track):
     sp = spotify.get_spotify_client(state.config)
     device_id = _resolve_device(state, sp.current_playback())
     started = device_id is not None and _start_playback(
-        state, sp, device_id=device_id, uris=[f'spotify:track:{track_id}']
+        state, sp, device_id=device_id, uris=[f'spotify:track:{track.track_id}']
     )
     if not started:
-        return _redirect_to_devices(state, 'play_track', track_props)
+        return _redirect_to_devices(state, 'play_track', track)
     return ('search',)

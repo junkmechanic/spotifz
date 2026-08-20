@@ -13,6 +13,7 @@ from spotifz.helpers.fzf import (
     run_fzf,
     run_fzf_sink,
 )
+from spotifz.spotify.sink import DISPLAY_FIELD, SEPARATOR, TRACK_ID_FIELD
 
 
 @pytest.fixture
@@ -58,11 +59,13 @@ def writer(config, fifo_path):
 
 def as_fzf_would(preview, line):
     """
-    Emulates fzf's placeholder substitution: `{}` becomes the highlighted line,
-    single-quoted. Verified by hand against fzf 0.74.1 -- the suite must never
-    reach the real binary, which blocks forever without a TTY.
+    Emulates fzf's placeholder substitution: `{N}` becomes the Nth
+    SEPARATOR-separated field of the original line, single-quoted. Verified by
+    hand against fzf 0.74.1 -- the suite must never reach the real binary,
+    which blocks forever without a TTY.
     """
-    return preview.replace('{}', shlex.quote(line))
+    field = line.split(SEPARATOR)[TRACK_ID_FIELD - 1]
+    return preview.replace('{%d}' % TRACK_ID_FIELD, shlex.quote(field))
 
 
 def render_preview(track_dir, line, track_id='track-1', name='Song One'):
@@ -84,7 +87,7 @@ def render_preview(track_dir, line, track_id='track-1', name='Song One'):
 
 
 def test_the_preview_command_renders_the_track_json(config):
-    line = 'Song One :: Album :: A, B :: Road Trip :: pl-1 :: track-1'
+    line = 'Song One :: Album :: A, B :: Road Trip\x1ftrack-1\x1fpl-1'
 
     result = render_preview(config['data_paths']['track_path'], line)
 
@@ -96,26 +99,24 @@ def test_the_preview_command_survives_a_space_in_the_path(config, tmp_path):
     The old command interpolated the directory unquoted and piped it through
     xargs, which split it on whitespace.
     """
-    line = 'Song One :: Album :: A, B :: Road Trip :: pl-1 :: track-1'
+    line = 'Song One :: Album :: A, B :: Road Trip\x1ftrack-1\x1fpl-1'
 
     result = render_preview(str(tmp_path / 'cache dir' / 'tracks'), line)
 
     assert 'Song One' in result.stdout
 
 
-def test_the_preview_command_reads_the_wrong_field_for_a_name_with_the_separator(
-    config,
-):
+def test_the_preview_command_renders_a_track_whose_name_holds_the_separator(config):
     """
-    Documents the bug rather than asserting it is fixed: ' :: ' inside a name
-    adds a field, so the hard-coded sixth one is the playlist id and the
-    preview pane silently shows nothing. Invert this when the format changes.
+    The bug item 7 fixes, asserted from the preview's side: this used to add a
+    field, so the hard-coded sixth one was the playlist id and the pane
+    silently showed nothing.
     """
-    line = 'Intro :: Reprise :: Album :: A, B :: Road Trip :: pl-1 :: track-1'
+    line = 'Intro :: Reprise :: Album :: A, B :: Road Trip\x1ftrack-1\x1fpl-1'
 
     result = render_preview(config['data_paths']['track_path'], line)
 
-    assert 'Song One' not in result.stdout
+    assert 'Song One' in result.stdout
 
 
 def test_ensure_fzf_passes_when_fzf_is_on_the_path(monkeypatch):
@@ -148,12 +149,20 @@ def test_run_fzf_sink_returns_the_selection(config, fake_fzf):
     assert fake_fzf[0]['stdin'] == 'one\ntwo\n'
 
 
-def test_run_fzf_sink_previews_the_track_by_its_sixth_field(config, fake_fzf):
+def test_run_fzf_sink_asks_fzf_to_extract_the_id_field(config, fake_fzf):
+    """
+    The preview no longer parses the line itself: fzf is told the structure and
+    substitutes the field.
+    """
     run_fzf_sink(writer, config)
 
-    preview = fake_fzf[0]['cmd'][fake_fzf[0]['cmd'].index('--preview') + 1]
+    cmd = fake_fzf[0]['cmd']
+    assert cmd[cmd.index('--delimiter') + 1] == SEPARATOR
+    assert cmd[cmd.index('--with-nth') + 1] == str(DISPLAY_FIELD)
+
+    preview = cmd[cmd.index('--preview') + 1]
     assert config['data_paths']['track_path'] in preview
-    assert '$6' in preview
+    assert '{%d}' % TRACK_ID_FIELD in preview
 
 
 def test_run_fzf_sink_removes_the_fifo_on_the_normal_path(config, fake_fzf):
