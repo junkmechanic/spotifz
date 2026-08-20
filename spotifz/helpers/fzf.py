@@ -1,6 +1,8 @@
 import os
+import shlex
 import shutil
 import subprocess
+import sys
 from concurrent.futures import ThreadPoolExecutor
 
 
@@ -14,6 +16,30 @@ def ensure_fzf():
             'fzf was not found on your PATH. '
             'See https://github.com/junegunn/fzf for install instructions.'
         )
+
+
+def preview_command(track_dir):
+    """
+    The shell command fzf runs for the highlighted line, with `{}` replaced by
+    that line, single-quoted.
+
+    The track id is the sixth ' :: '-separated field -- see sink_all_tracks in
+    ../spotify/sink.py. A name containing ' :: ' shifts the fields and the
+    preview then reads the wrong one; that is a defect of the wire format
+    rather than of this command.
+    """
+    extract_id = "echo {} | awk -F ' :: ' '{print $6}'"
+    # The directory is quoted on its own and concatenated with a double-quoted
+    # command substitution, so a cache_path containing a space survives. The
+    # previous version interpolated it bare and piped it through xargs, which
+    # split it on whitespace.
+    track_file = shlex.quote(track_dir) + '"' + os.sep + '$(' + extract_id + ')"'
+    # sys.executable rather than a bare `python`: current macOS and most Linux
+    # distributions ship only `python3`, and a preview that silently fails is
+    # invisible -- fzf shows an empty pane and reports nothing.
+    return '{} -m json.tool {} | (highlight -O ansi --syntax json || cat)'.format(
+        shlex.quote(sys.executable), track_file
+    )
 
 
 def run_fzf(search_items, prompt=None):
@@ -41,18 +67,7 @@ def run_fzf_sink(iterator_func, config, prompt=None):
     if prompt is None:
         prompt = '> '
 
-    track_dir = config['data_paths']['track_path']
-
-    # The `$6` refers to the 6th element separated by `::` which is `track_id`
-    # Refer to function `sink_all_tracks()` in `../spotify/sink.py`
-    awk_cmd = 'awk -F " :: " -v tp={}/'.format(track_dir) + " '{ print tp$6 }'"
-    preview_template = """
-    echo {} |
-    {} |
-    xargs python -m json.tool |
-    (highlight -O ansi --syntax json || cat )
-    """
-    preview = preview_template.format('{}', awk_cmd)
+    preview = preview_command(config['data_paths']['track_path'])
 
     executor = ThreadPoolExecutor(max_workers=1)
     try:
