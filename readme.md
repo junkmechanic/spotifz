@@ -53,3 +53,9 @@ is no environment to activate or keep track of.
 3. `uv run pytest` -- run the test suite.
 4. `uv run ruff check .` and `uv run ruff format .` -- lint and format.
 5. `uv run pre-commit install` -- optional, to run the hooks on every commit.
+
+`uv.lock` is committed, so `uv sync` installs exactly what it pins. If you
+change dependencies in `pyproject.toml`, run `uv lock` and commit the result:
+CI runs with `--locked` and fails if the lock and the manifest have drifted
+apart. `.python-version` is committed too, so a fresh checkout gets the same
+interpreter rather than whichever one happens to satisfy `requires-python`.
