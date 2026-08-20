@@ -43,6 +43,19 @@ Selected Track:
 
 ## Dev Setup
 
-1. Create a virtualenv and activate it.
-2. `pip install -r requirements.txt`
-3. `pip install -e .`
+This project uses [uv](https://docs.astral.sh/uv/). It creates a `.venv` in the
+project directory and resolves it from the current working directory, so there
+is no environment to activate or keep track of.
+
+1. `uv sync` -- creates `.venv` and installs the project with its dev
+   dependencies.
+2. `uv run spotifz` -- run the CLI from the checkout.
+3. `uv run pytest` -- run the test suite.
+4. `uv run ruff check .` and `uv run ruff format .` -- lint and format.
+5. `uv run pre-commit install` -- optional, to run the hooks on every commit.
+
+`uv.lock` is committed, so `uv sync` installs exactly what it pins. If you
+change dependencies in `pyproject.toml`, run `uv lock` and commit the result:
+CI runs with `--locked` and fails if the lock and the manifest have drifted
+apart. `.python-version` is committed too, so a fresh checkout gets the same
+interpreter rather than whichever one happens to satisfy `requires-python`.

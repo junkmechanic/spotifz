@@ -75,8 +75,7 @@ def describe_playback(playback):
             lines.append('Album : ' + item['album']['name'])
         if item.get('artists'):
             lines.append(
-                'Artist : '
-                + ' ; '.join(artist['name'] for artist in item['artists'])
+                'Artist : ' + ' ; '.join(artist['name'] for artist in item['artists'])
             )
 
     if device is not None:
@@ -161,9 +160,7 @@ def update_cache(config):
 
 
 def search(config):
-    chosen = fzf.run_fzf_sink(
-        spotify.sink_all_tracks, config, prompt='[Search] > '
-    )[0]
+    chosen = fzf.run_fzf_sink(spotify.sink_all_tracks, config, prompt='[Search] > ')[0]
     result = list(map(str.strip, chosen.split('::')))
     if len(result) > 1:
         return 'track_actions', result
@@ -194,9 +191,7 @@ def play_track_in_playlist(config, track_props):
     sp = spotify.get_spotify_client(config)
     device_id = _resolve_device(config, sp.current_playback())
     if device_id is None:
-        return _redirect_to_devices(
-            config, 'play_track_in_playlist', track_props
-        )
+        return _redirect_to_devices(config, 'play_track_in_playlist', track_props)
     sp.start_playback(
         device_id=device_id,
         context_uri=f'spotify:playlist:{playlist_id}',
@@ -211,7 +206,5 @@ def play_track(config, track_props):
     device_id = _resolve_device(config, sp.current_playback())
     if device_id is None:
         return _redirect_to_devices(config, 'play_track', track_props)
-    sp.start_playback(
-        device_id=device_id, uris=[f'spotify:track:{track_id}']
-    )
+    sp.start_playback(device_id=device_id, uris=[f'spotify:track:{track_id}'])
     return ('search',)

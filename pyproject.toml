@@ -1,0 +1,45 @@
+[build-system]
+requires = ['setuptools>=61.0']
+build-backend = 'setuptools.build_meta'
+
+[project]
+name = 'spotifz'
+version = '1.0.0'
+description = 'A thin wrapper to search Spotify personal library'
+readme = 'readme.md'
+requires-python = '>=3.9'
+authors = [{ name = 'Ankur Khanna', email = 'khanna89ankur@gmail.com' }]
+keywords = ['spotify', 'search', 'fzf']
+classifiers = [
+    'Development Status :: 4 - Beta',
+    'Programming Language :: Python :: 3',
+]
+dependencies = ['spotipy>=2.26.0']
+
+[project.urls]
+Homepage = 'https://github.com/junkmechanic/spotifz'
+
+[project.scripts]
+spotifz = 'spotifz.cli:main'
+
+[dependency-groups]
+dev = ['pre-commit>=3.0', 'pytest>=7.0', 'ruff>=0.16']
+
+[tool.setuptools.packages.find]
+include = ['spotifz*']
+
+[tool.ruff]
+line-length = 90
+
+[tool.ruff.format]
+quote-style = 'single'
+
+[tool.ruff.lint]
+# Deliberately pinned rather than left to ruff's defaults, which have grown
+# well past flake8's E4/E7/E9/F and would turn a tooling swap into a
+# behaviour-touching diff. E + F is the flake8 equivalent; I adds the import
+# sorting flake8 never had.
+select = ['E', 'F', 'I']
+
+[tool.pytest.ini_options]
+testpaths = ['tests']

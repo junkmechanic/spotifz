@@ -10,9 +10,7 @@ def sink_all_tracks(config, fifo_path):
 
     try:
         with open(fifo_path, 'w') as sink:
-            for p_file in glob(
-                os.path.join(config['data_paths']['playlist_path'], '*')
-            ):
+            for p_file in glob(os.path.join(config['data_paths']['playlist_path'], '*')):
                 with open(p_file) as ifi:
                     playlist = json.load(ifi)
                 for track in playlist['tracks']:
