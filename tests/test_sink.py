@@ -64,13 +64,17 @@ def test_sinks_every_track_of_every_playlist(config, playlist_dir, make_track):
     assert sorted(line.split(' :: ')[5] for line in lines) == ['a', 'b', 'c']
 
 
-def test_sinks_playlists_whose_ids_end_in_json_characters(
+def test_sinks_playlists_regardless_of_characters_in_the_id(
     config, playlist_dir, make_track
 ):
     """
-    The original glob was '*[!json]', which excludes any id ending in one of
-    j/s/o/n rather than excluding a '.json' suffix. Reintroducing it drops
-    every id below except 'plainid'.
+    The playlist directory is read wholesale -- every file in it is a playlist,
+    and Spotify ids are opaque strings that can end in any character.
+
+    If a future change puts a non-playlist file in this directory (a manifest,
+    an index, a database), do not filter by filename pattern: the ids below are
+    the ones a plausible pattern would exclude by accident, and losing a
+    playlist here is silent. Tracks simply stop appearing in search.
     """
     for playlist_id in ('endsinj', 'endsins', 'endsino', 'endsinn', 'plainid'):
         write_playlist(
