@@ -3,6 +3,7 @@ import os
 import pytest
 
 from spotifz.helpers import update_data_paths
+from spotifz.state import AppState
 
 
 @pytest.fixture
@@ -23,6 +24,16 @@ def config(tmp_path):
     update_data_paths(cfg)
     os.makedirs(cfg['cache_path'], exist_ok=True)
     return cfg
+
+
+@pytest.fixture
+def state(config):
+    """
+    The runtime state built from that config. from_config is idempotent on an
+    already-normalised config: expanding an absolute path and recomputing
+    data_paths are both no-ops, so both fixtures can be used together.
+    """
+    return AppState.from_config(config)
 
 
 @pytest.fixture
