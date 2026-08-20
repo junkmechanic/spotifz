@@ -1,13 +1,15 @@
 import pytest
+from spotipy import SpotifyException
 
 from spotifz.interface import screens
 from spotifz.state import AppState
 
 
 class FakeClient:
-    def __init__(self, playback=None, devices=()):
+    def __init__(self, playback=None, devices=(), start_error=None):
         self._playback = playback
         self._devices = list(devices)
+        self._start_error = start_error
         self.calls = []
 
     def current_playback(self, **kwargs):
@@ -23,6 +25,8 @@ class FakeClient:
 
     def start_playback(self, **kwargs):
         self.calls.append(('start_playback', kwargs))
+        if self._start_error is not None:
+            raise self._start_error
 
     def pause_playback(self):
         self.calls.append(('pause_playback', {}))
@@ -38,8 +42,8 @@ def client(monkeypatch):
     screens.spotify.get_spotify_client, so that is the only seam needed.
     """
 
-    def _install(playback=None, devices=()):
-        fake = FakeClient(playback, devices)
+    def _install(playback=None, devices=(), start_error=None):
+        fake = FakeClient(playback, devices, start_error)
         monkeypatch.setattr(screens.spotify, 'get_spotify_client', lambda cfg: fake)
         return fake
 
@@ -475,6 +479,37 @@ def test_the_device_redirect_round_trips_resume(state, client):
 
     client()
     assert screens.device_actions(state, 'd1') == ('resume',)
+
+
+def device_gone():
+    return SpotifyException(404, -1, 'Device not found')
+
+
+def test_a_persisted_device_that_no_longer_exists_is_forgotten(state, client):
+    """
+    Once the device id comes off disk it can be a phone that has been off for a
+    week. The user should get the device picker they would have got with no
+    device chosen at all, not a traceback out of cli.main.
+    """
+    props = ['Song', 'pl-1', 'track-1']
+    client(playback=None, start_error=device_gone())
+    state.set_active_device('d1')
+
+    assert screens.play_track(state, props) == ('list_devices',)
+    assert state.active_device_id is None
+    # Forgotten on disk too, or the next session retries the dead device.
+    assert AppState.from_config(state.config).active_device_id is None
+    # And the redirect still knows what the user was trying to do.
+    assert state.pending_screen == ('play_track', (props,))
+
+
+def test_resume_forgets_a_persisted_device_that_no_longer_exists(state, client):
+    client(playback=None, start_error=device_gone())
+    state.set_active_device('d1')
+
+    assert screens.resume(state) == ('list_devices',)
+    assert state.active_device_id is None
+    assert state.pending_screen == ('resume', ())
 
 
 # --- update_cache ------------------------------------------------------------

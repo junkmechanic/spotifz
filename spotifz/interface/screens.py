@@ -1,5 +1,7 @@
 from collections import Counter
 
+from spotipy import SpotifyException
+
 from .. import spotify
 from ..helpers import fzf
 
@@ -20,6 +22,20 @@ def _resolve_device(state, playback):
     if playback is not None:
         return playback['device']['id']
     return state.active_device_id
+
+
+def _start_playback(state, sp, **kwargs):
+    """
+    A device that was alive last session may be gone this one, and Spotify
+    answers with a 404. Forget it, so the caller can send the user to pick
+    another -- the same path as never having chosen one.
+    """
+    try:
+        sp.start_playback(**kwargs)
+    except SpotifyException:
+        state.forget_active_device()
+        return False
+    return True
 
 
 def home_screen(_):
@@ -144,9 +160,11 @@ def resume(state):
     playback = sp.current_playback()
     if playback is None:
         device_id = _resolve_device(state, playback)
-        if device_id is None:
+        started = device_id is not None and _start_playback(
+            state, sp, device_id=device_id
+        )
+        if not started:
             return _redirect_to_devices(state, 'resume')
-        sp.start_playback(device_id=device_id)
     elif playback['is_playing']:
         sp.pause_playback()
     else:
@@ -192,13 +210,15 @@ def play_track_in_playlist(state, track_props):
     track_id, playlist_id = track_props[-1], track_props[-2]
     sp = spotify.get_spotify_client(state.config)
     device_id = _resolve_device(state, sp.current_playback())
-    if device_id is None:
-        return _redirect_to_devices(state, 'play_track_in_playlist', track_props)
-    sp.start_playback(
+    started = device_id is not None and _start_playback(
+        state,
+        sp,
         device_id=device_id,
         context_uri=f'spotify:playlist:{playlist_id}',
         offset={'uri': f'spotify:track:{track_id}'},
     )
+    if not started:
+        return _redirect_to_devices(state, 'play_track_in_playlist', track_props)
     return ('search',)
 
 
@@ -206,7 +226,9 @@ def play_track(state, track_props):
     track_id = track_props[-1]
     sp = spotify.get_spotify_client(state.config)
     device_id = _resolve_device(state, sp.current_playback())
-    if device_id is None:
+    started = device_id is not None and _start_playback(
+        state, sp, device_id=device_id, uris=[f'spotify:track:{track_id}']
+    )
+    if not started:
         return _redirect_to_devices(state, 'play_track', track_props)
-    sp.start_playback(device_id=device_id, uris=[f'spotify:track:{track_id}'])
     return ('search',)
