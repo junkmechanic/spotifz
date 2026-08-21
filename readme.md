@@ -41,6 +41,12 @@ Selected Track:
 6. You should be able to call `spotifz` from your shell.
 7. Select `Update Cache` the first time you run `spotifz`.
 
+`spotifz` writes two files of its own into `cache_path`, both named after the
+`user` in your config: `<user>_spotify.cache.json` holds the OAuth token, and
+`<user>_state.json` remembers the playback device you last chose, so you do not
+have to pick one every session. Both sit outside `spotify_data/`, which
+`Update Cache` deletes and rebuilds.
+
 ## Dev Setup
 
 This project uses [uv](https://docs.astral.sh/uv/). It creates a `.venv` in the

@@ -1,7 +1,13 @@
 import os
+import shlex
 import shutil
 import subprocess
+import sys
 from concurrent.futures import ThreadPoolExecutor
+
+# Imported from the module rather than the package: the format's owner is
+# sink.py, and spotifz.spotify may still be initialising when this is loaded.
+from ..spotify.sink import DISPLAY_FIELD, SEPARATOR, TRACK_ID_FIELD
 
 
 class FzfNotFound(Exception):
@@ -14,6 +20,27 @@ def ensure_fzf():
             'fzf was not found on your PATH. '
             'See https://github.com/junegunn/fzf for install instructions.'
         )
+
+
+def preview_command(track_dir):
+    """
+    The shell command fzf runs for the highlighted line.
+
+    fzf substitutes `{N}` with the Nth SEPARATOR-separated field of the
+    *original* line, single-quoted -- so there is no text parsing here at all,
+    and the separator never reaches a shell. Verified against fzf 0.74.1:
+    --with-nth hides the id fields from the display and from matching, but not
+    from these placeholders.
+    """
+    # The quoted directory and fzf's single-quoted field concatenate in sh,
+    # bash and zsh, so a cache_path containing a space survives.
+    track_file = shlex.quote(track_dir + os.sep) + '{' + str(TRACK_ID_FIELD) + '}'
+    # sys.executable rather than a bare `python`: current macOS and most Linux
+    # distributions ship only `python3`, and a preview that silently fails is
+    # invisible -- fzf shows an empty pane and reports nothing.
+    return '{} -m json.tool {} | (highlight -O ansi --syntax json || cat)'.format(
+        shlex.quote(sys.executable), track_file
+    )
 
 
 def run_fzf(search_items, prompt=None):
@@ -41,18 +68,7 @@ def run_fzf_sink(iterator_func, config, prompt=None):
     if prompt is None:
         prompt = '> '
 
-    track_dir = config['data_paths']['track_path']
-
-    # The `$6` refers to the 6th element separated by `::` which is `track_id`
-    # Refer to function `sink_all_tracks()` in `../spotify/sink.py`
-    awk_cmd = 'awk -F " :: " -v tp={}/'.format(track_dir) + " '{ print tp$6 }'"
-    preview_template = """
-    echo {} |
-    {} |
-    xargs python -m json.tool |
-    (highlight -O ansi --syntax json || cat )
-    """
-    preview = preview_template.format('{}', awk_cmd)
+    preview = preview_command(config['data_paths']['track_path'])
 
     executor = ThreadPoolExecutor(max_workers=1)
     try:
@@ -60,7 +76,19 @@ def run_fzf_sink(iterator_func, config, prompt=None):
 
         with open(fifo_path, 'r') as sink:
             fuzzy_result = subprocess.run(
-                ['fzf', '--prompt', prompt, '--preview', preview],
+                [
+                    'fzf',
+                    '--prompt',
+                    prompt,
+                    # Show and match only the display field; the ids ride along
+                    # on the line for the preview and for the accepted result.
+                    '--delimiter',
+                    SEPARATOR,
+                    '--with-nth',
+                    str(DISPLAY_FIELD),
+                    '--preview',
+                    preview,
+                ],
                 stdin=sink,
                 stdout=subprocess.PIPE,
             )
@@ -73,4 +101,6 @@ def run_fzf_sink(iterator_func, config, prompt=None):
         if os.path.exists(fifo_path):
             os.remove(fifo_path)
 
-    return fuzzy_result.stdout.decode().strip().split('\n')
+    # strip('\n'), not strip(): 0x1f is whitespace to Python, so a bare strip
+    # would eat a separator next to an empty field.
+    return fuzzy_result.stdout.decode().strip('\n').split('\n')

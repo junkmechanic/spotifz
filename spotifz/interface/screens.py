@@ -1,26 +1,41 @@
 from collections import Counter
 
+from spotipy import SpotifyException
+
 from .. import spotify
 from ..helpers import fzf
 
 
-def _redirect_to_devices(config, screen, *screen_args):
+def _redirect_to_devices(state, screen, *screen_args):
     """
     Send the user to device selection, recording where to return afterwards.
     """
-    config['last_screen'] = screen
-    config['last_screen_args'] = screen_args
+    state.pending_screen = (screen, screen_args)
     return ('list_devices',)
 
 
-def _resolve_device(config, playback):
+def _resolve_device(state, playback):
     """
     Returns the device id to start playback on, or None when the caller should
     redirect to device selection first.
     """
     if playback is not None:
         return playback['device']['id']
-    return config.get('active_device_id')
+    return state.active_device_id
+
+
+def _start_playback(state, sp, **kwargs):
+    """
+    A device that was alive last session may be gone this one, and Spotify
+    answers with a 404. Forget it, so the caller can send the user to pick
+    another -- the same path as never having chosen one.
+    """
+    try:
+        sp.start_playback(**kwargs)
+    except SpotifyException:
+        state.forget_active_device()
+        return False
+    return True
 
 
 def home_screen(_):
@@ -83,8 +98,8 @@ def describe_playback(playback):
     return lines
 
 
-def current_playback(config):
-    sp = spotify.get_spotify_client(config)
+def current_playback(state):
+    sp = spotify.get_spotify_client(state.config)
     # Without `additional_types`, Spotify represents an unsupported item type
     # as a null `item`, so a playing podcast would arrive indistinguishable
     # from an advert and never render.
@@ -97,20 +112,20 @@ def current_playback(config):
     return ('home_screen',)
 
 
-def list_devices(config):
-    devices = sp_devices(config)
+def list_devices(state):
+    devices = sp_devices(state)
     chosen = fzf.run_fzf(list(devices.keys()), prompt='[Devices] > ')[0]
     if chosen == '':
         return ('home_screen',)
     return 'device_actions', devices[chosen]
 
 
-def sp_devices(config):
+def sp_devices(state):
     """
     Maps a display label to a device id. Device names are not unique (two
     phones, two browsers), so only the colliding ones get disambiguated.
     """
-    sp = spotify.get_spotify_client(config)
+    sp = spotify.get_spotify_client(state.config)
     devices = sp.devices()['devices']
     name_counts = Counter(d['name'] for d in devices)
 
@@ -126,27 +141,30 @@ def sp_devices(config):
     return labelled
 
 
-def device_actions(config, device_id):
+def device_actions(state, device_id):
     """
     For now, there is just one action
     """
-    sp = spotify.get_spotify_client(config)
+    sp = spotify.get_spotify_client(state.config)
     sp.transfer_playback(device_id)
-    config['active_device_id'] = device_id
-    last_screen = config.pop('last_screen', None)
-    if last_screen is not None:
-        return last_screen, *config.pop('last_screen_args', ())
+    state.set_active_device(device_id)
+    pending = state.take_pending_screen()
+    if pending is not None:
+        screen, screen_args = pending
+        return (screen, *screen_args)
     return ('home_screen',)
 
 
-def resume(config):
-    sp = spotify.get_spotify_client(config)
+def resume(state):
+    sp = spotify.get_spotify_client(state.config)
     playback = sp.current_playback()
     if playback is None:
-        device_id = _resolve_device(config, playback)
-        if device_id is None:
-            return _redirect_to_devices(config, 'resume')
-        sp.start_playback(device_id=device_id)
+        device_id = _resolve_device(state, playback)
+        started = device_id is not None and _start_playback(
+            state, sp, device_id=device_id
+        )
+        if not started:
+            return _redirect_to_devices(state, 'resume')
     elif playback['is_playing']:
         sp.pause_playback()
     else:
@@ -154,27 +172,28 @@ def resume(config):
     return ('home_screen',)
 
 
-def update_cache(config):
-    spotify.update_cache(config)
+def update_cache(state):
+    spotify.update_cache(state.config)
     return ('home_screen',)
 
 
-def search(config):
-    chosen = fzf.run_fzf_sink(spotify.sink_all_tracks, config, prompt='[Search] > ')[0]
-    result = list(map(str.strip, chosen.split('::')))
-    if len(result) > 1:
-        return 'track_actions', result
-    else:
+def search(state):
+    chosen = fzf.run_fzf_sink(
+        spotify.sink_all_tracks, state.config, prompt='[Search] > '
+    )[0]
+    # An empty selection -- the user hit Esc -- carries no separator.
+    if spotify.SEPARATOR not in chosen:
         return ('home_screen',)
+    return 'track_actions', spotify.parse_track_line(chosen)
 
 
-def track_actions(_, track_props):
+def track_actions(_, track):
     choices = {
         'Play Track in Playlist': 'play_track_in_playlist',
         'Play Track': 'play_track',
     }
 
-    track_name = track_props[0].replace("'", '')
+    track_name = track.name.replace("'", '')
     if len(track_name) > 20:
         prompt = f'[{track_name[:20]}...] > '
     else:
@@ -183,28 +202,30 @@ def track_actions(_, track_props):
     chosen = fzf.run_fzf(list(choices.keys()), prompt=prompt)[0]
     if chosen == '':
         return ('search',)
-    return choices[chosen], track_props
+    return choices[chosen], track
 
 
-def play_track_in_playlist(config, track_props):
-    track_id, playlist_id = track_props[-1], track_props[-2]
-    sp = spotify.get_spotify_client(config)
-    device_id = _resolve_device(config, sp.current_playback())
-    if device_id is None:
-        return _redirect_to_devices(config, 'play_track_in_playlist', track_props)
-    sp.start_playback(
+def play_track_in_playlist(state, track):
+    sp = spotify.get_spotify_client(state.config)
+    device_id = _resolve_device(state, sp.current_playback())
+    started = device_id is not None and _start_playback(
+        state,
+        sp,
         device_id=device_id,
-        context_uri=f'spotify:playlist:{playlist_id}',
-        offset={'uri': f'spotify:track:{track_id}'},
+        context_uri=f'spotify:playlist:{track.playlist_id}',
+        offset={'uri': f'spotify:track:{track.track_id}'},
     )
+    if not started:
+        return _redirect_to_devices(state, 'play_track_in_playlist', track)
     return ('search',)
 
 
-def play_track(config, track_props):
-    track_id = track_props[-1]
-    sp = spotify.get_spotify_client(config)
-    device_id = _resolve_device(config, sp.current_playback())
-    if device_id is None:
-        return _redirect_to_devices(config, 'play_track', track_props)
-    sp.start_playback(device_id=device_id, uris=[f'spotify:track:{track_id}'])
+def play_track(state, track):
+    sp = spotify.get_spotify_client(state.config)
+    device_id = _resolve_device(state, sp.current_playback())
+    started = device_id is not None and _start_playback(
+        state, sp, device_id=device_id, uris=[f'spotify:track:{track.track_id}']
+    )
+    if not started:
+        return _redirect_to_devices(state, 'play_track', track)
     return ('search',)

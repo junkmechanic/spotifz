@@ -2,7 +2,13 @@ import json
 import os
 import threading
 
-from spotifz.spotify.sink import sink_all_tracks
+from spotifz.spotify.sink import (
+    SEPARATOR,
+    TRACK_ID_FIELD,
+    format_track_line,
+    parse_track_line,
+    sink_all_tracks,
+)
 
 
 def write_playlist(playlist_dir, playlist_id, name, tracks):
@@ -34,7 +40,7 @@ def make_fifo(config):
     return fifo_path
 
 
-def test_sinks_a_six_field_line_per_track(config, playlist_dir, make_track):
+def test_sinks_a_display_and_two_ids_per_track(config, playlist_dir, make_track):
     write_playlist(
         playlist_dir,
         'pl-1',
@@ -44,10 +50,10 @@ def test_sinks_a_six_field_line_per_track(config, playlist_dir, make_track):
 
     lines = drain(config, make_fifo(config))
 
-    assert lines == ['Song One :: Album :: A, B :: Road Trip :: pl-1 :: track-1']
-    # The preview pane's `awk -F " :: " '{print $6}'` depends on the id being
-    # the sixth field.
-    assert lines[0].split(' :: ')[5] == 'track-1'
+    assert lines == ['Song One :: Album :: A, B :: Road Trip\x1ftrack-1\x1fpl-1']
+    # The preview pane's `{2}` placeholder depends on the id being the second
+    # SEPARATOR-separated field.
+    assert lines[0].split(SEPARATOR)[TRACK_ID_FIELD - 1] == 'track-1'
 
 
 def test_sinks_every_track_of_every_playlist(config, playlist_dir, make_track):
@@ -61,7 +67,7 @@ def test_sinks_every_track_of_every_playlist(config, playlist_dir, make_track):
 
     lines = drain(config, make_fifo(config))
 
-    assert sorted(line.split(' :: ')[5] for line in lines) == ['a', 'b', 'c']
+    assert sorted(parse_track_line(line).track_id for line in lines) == ['a', 'b', 'c']
 
 
 def test_sinks_playlists_regardless_of_characters_in_the_id(
@@ -83,7 +89,7 @@ def test_sinks_playlists_regardless_of_characters_in_the_id(
 
     lines = drain(config, make_fifo(config))
 
-    assert sorted(line.split(' :: ')[4] for line in lines) == [
+    assert sorted(parse_track_line(line).playlist_id for line in lines) == [
         'endsinj',
         'endsinn',
         'endsino',
@@ -118,13 +124,13 @@ def test_a_broken_pipe_is_swallowed(config, playlist_dir, make_track):
         reader.join()
 
 
-def test_names_containing_the_separator_shift_the_fields(
+def test_names_containing_the_display_separator_do_not_shift_the_fields(
     config, playlist_dir, make_track
 ):
     """
-    Documents the bug rather than asserting it is fixed: ' :: ' is not
-    escaped, so a name containing it produces seven fields and pushes the id
-    out of position six. Invert this test when the separator is replaced.
+    ' :: ' is decoration inside the display field now, so a name may contain
+    it. This test used to document the opposite: it asserted seven fields and
+    an id pushed out of position six, which is what broke the preview pane.
     """
     write_playlist(
         playlist_dir,
@@ -134,9 +140,53 @@ def test_names_containing_the_separator_shift_the_fields(
     )
 
     lines = drain(config, make_fifo(config))
-    fields = lines[0].split(' :: ')
+    fields = lines[0].split(SEPARATOR)
 
-    assert len(fields) == 7
-    assert fields[5] != 'track-1'
-    # The negative index that screens.py relies on still finds it.
-    assert fields[-1] == 'track-1'
+    assert len(fields) == 3
+    # The positive index works now -- that is the whole point.
+    assert fields[TRACK_ID_FIELD - 1] == 'track-1'
+    # And the name survives intact in the display.
+    assert fields[0].startswith('Intro :: Reprise')
+
+
+def test_format_track_line_removes_a_separator_from_a_name(make_track):
+    """
+    SEPARATOR cannot occur in a real Spotify name, but the line protocol should
+    not depend on that being true.
+    """
+    track = make_track(name='Side A\x1fSide B', track_id='track-1')
+
+    line = format_track_line(track, {'id': 'pl-1', 'name': 'Mix'})
+
+    assert len(line.rstrip('\n').split(SEPARATOR)) == 3
+    assert parse_track_line(line.rstrip('\n')).track_id == 'track-1'
+
+
+def test_format_track_line_removes_a_newline_from_a_name(make_track):
+    """One record is one line, so a name may not end it early."""
+    track = make_track(name='First\nSecond', track_id='track-1')
+
+    line = format_track_line(track, {'id': 'pl-1', 'name': 'Mix'})
+
+    assert line.count('\n') == 1
+    assert line.endswith('\n')
+
+
+def test_parse_track_line_round_trips_what_format_wrote(make_track):
+    """
+    Pins the writer and the reader to each other. Their drifting apart -- one
+    joining on ' :: ', the other splitting on '::' -- is what item 7 was.
+    """
+    track = make_track(name='Song :: One', track_id='track-1', artists=('A', 'B'))
+
+    ref = parse_track_line(
+        format_track_line(track, {'id': 'pl-1', 'name': 'Road Trip'}).rstrip('\n')
+    )
+
+    assert ref.track_id == 'track-1'
+    assert ref.playlist_id == 'pl-1'
+    # The full name survives on the line and in the display...
+    assert ref.display.startswith('Song :: One')
+    # ...but `name` is prompt decoration and stops at the display separator.
+    # Cosmetic, and the only thing ' :: ' in a name still affects.
+    assert ref.name == 'Song'

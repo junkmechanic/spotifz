@@ -5,6 +5,7 @@ import pytest
 
 import spotifz
 from spotifz.helpers import update_data_paths
+from spotifz.state import AppState
 
 
 def valid_config():
@@ -148,12 +149,14 @@ def test_launch_stops_when_the_home_screen_returns_none(
     monkeypatch.setattr(
         spotifz,
         'screens',
-        types.SimpleNamespace(home_screen=lambda cfg: calls.append(cfg) or (None,)),
+        types.SimpleNamespace(home_screen=lambda s: calls.append(s) or (None,)),
     )
 
     spotifz.launch(config)
 
-    assert calls == [config]
+    assert len(calls) == 1
+    assert isinstance(calls[0], AppState)
+    assert calls[0].config == config
 
 
 def test_launch_forwards_several_screen_args(config, monkeypatch, no_fzf_check):
@@ -190,15 +193,24 @@ def test_launch_validates_before_checking_for_fzf(monkeypatch):
     assert checked == []
 
 
-def test_launch_populates_the_data_paths(config, monkeypatch, no_fzf_check):
+def test_launch_leaves_the_callers_config_alone(monkeypatch, no_fzf_check):
+    """
+    The derived paths still get populated -- on the state, not by reaching back
+    into the dict the caller loaded from JSON.
+    """
     cfg = valid_config()
+    seen = []
     monkeypatch.setattr(
-        spotifz, 'screens', types.SimpleNamespace(home_screen=lambda c: (None,))
+        spotifz,
+        'screens',
+        types.SimpleNamespace(home_screen=lambda s: seen.append(s) or (None,)),
     )
 
     spotifz.launch(cfg)
 
-    assert 'data_paths' in cfg
+    assert cfg == valid_config()
+    base = os.path.join('/tmp/spotifz-cache', 'spotify_data')
+    assert seen[0].data_paths['base_path'] == base
 
 
 def test_update_cache_prepares_the_config_first(monkeypatch):

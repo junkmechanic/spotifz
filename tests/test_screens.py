@@ -1,12 +1,16 @@
 import pytest
+from spotipy import SpotifyException
 
 from spotifz.interface import screens
+from spotifz.spotify.sink import SEPARATOR, TrackRef
+from spotifz.state import AppState
 
 
 class FakeClient:
-    def __init__(self, playback=None, devices=()):
+    def __init__(self, playback=None, devices=(), start_error=None):
         self._playback = playback
         self._devices = list(devices)
+        self._start_error = start_error
         self.calls = []
 
     def current_playback(self, **kwargs):
@@ -22,6 +26,8 @@ class FakeClient:
 
     def start_playback(self, **kwargs):
         self.calls.append(('start_playback', kwargs))
+        if self._start_error is not None:
+            raise self._start_error
 
     def pause_playback(self):
         self.calls.append(('pause_playback', {}))
@@ -37,8 +43,8 @@ def client(monkeypatch):
     screens.spotify.get_spotify_client, so that is the only seam needed.
     """
 
-    def _install(playback=None, devices=()):
-        fake = FakeClient(playback, devices)
+    def _install(playback=None, devices=(), start_error=None):
+        fake = FakeClient(playback, devices, start_error)
         monkeypatch.setattr(screens.spotify, 'get_spotify_client', lambda cfg: fake)
         return fake
 
@@ -180,7 +186,7 @@ def test_describe_playback_omits_a_missing_device():
 # --- current_playback --------------------------------------------------------
 
 
-def test_current_playback_asks_for_episodes(config, client, fzf):
+def test_current_playback_asks_for_episodes(state, client, fzf):
     """
     Without additional_types a playing podcast comes back as a null item,
     indistinguishable from an advert, and never renders.
@@ -188,31 +194,31 @@ def test_current_playback_asks_for_episodes(config, client, fzf):
     fake = client(playback=track_playback())
     fzf('Track : Song')
 
-    screens.current_playback(config)
+    screens.current_playback(state)
 
     assert fake.named('current_playback')[0][1] == {'additional_types': 'episode'}
 
 
-def test_current_playback_returns_home_without_prompting(config, client, fzf):
+def test_current_playback_returns_home_without_prompting(state, client, fzf):
     client(playback=None)
     seen = fzf()
 
-    assert screens.current_playback(config) == ('home_screen',)
+    assert screens.current_playback(state) == ('home_screen',)
     assert seen['items'] == []
 
 
-def test_current_playback_shows_the_lines(config, client, fzf):
+def test_current_playback_shows_the_lines(state, client, fzf):
     client(playback=track_playback())
     seen = fzf('Track : Song')
 
-    assert screens.current_playback(config) == ('home_screen',)
+    assert screens.current_playback(state) == ('home_screen',)
     assert seen['items'][0][0] == 'Track : Song'
 
 
 # --- devices -----------------------------------------------------------------
 
 
-def test_sp_devices_leaves_unique_names_alone(config, client):
+def test_sp_devices_leaves_unique_names_alone(state, client):
     client(
         devices=[
             {'id': 'd1', 'name': 'Laptop', 'type': 'Computer'},
@@ -220,10 +226,10 @@ def test_sp_devices_leaves_unique_names_alone(config, client):
         ]
     )
 
-    assert screens.sp_devices(config) == {'Laptop': 'd1', 'Phone': 'd2'}
+    assert screens.sp_devices(state) == {'Laptop': 'd1', 'Phone': 'd2'}
 
 
-def test_sp_devices_disambiguates_duplicate_names_by_type(config, client):
+def test_sp_devices_disambiguates_duplicate_names_by_type(state, client):
     """
     Two devices sharing a name would otherwise collapse into one dict entry and
     the second would be unreachable.
@@ -235,13 +241,13 @@ def test_sp_devices_disambiguates_duplicate_names_by_type(config, client):
         ]
     )
 
-    assert screens.sp_devices(config) == {
+    assert screens.sp_devices(state) == {
         'Chrome (Computer)': 'd1',
         'Chrome (Smartphone)': 'd2',
     }
 
 
-def test_sp_devices_falls_back_to_the_id_when_the_type_also_collides(config, client):
+def test_sp_devices_falls_back_to_the_id_when_the_type_also_collides(state, client):
     client(
         devices=[
             {'id': 'aaaaaaaaaa', 'name': 'Chrome', 'type': 'Computer'},
@@ -249,89 +255,91 @@ def test_sp_devices_falls_back_to_the_id_when_the_type_also_collides(config, cli
         ]
     )
 
-    labelled = screens.sp_devices(config)
+    labelled = screens.sp_devices(state)
 
     assert sorted(labelled.values()) == ['aaaaaaaaaa', 'bbbbbbbbbb']
     assert 'Chrome (Computer) [bbbbbbbb]' in labelled
 
 
-def test_list_devices_returns_home_on_an_empty_selection(config, client, fzf):
+def test_list_devices_returns_home_on_an_empty_selection(state, client, fzf):
     client(devices=[{'id': 'd1', 'name': 'Laptop', 'type': 'Computer'}])
     fzf('')
 
-    assert screens.list_devices(config) == ('home_screen',)
+    assert screens.list_devices(state) == ('home_screen',)
 
 
-def test_list_devices_hands_the_id_to_device_actions(config, client, fzf):
+def test_list_devices_hands_the_id_to_device_actions(state, client, fzf):
     client(devices=[{'id': 'd1', 'name': 'Laptop', 'type': 'Computer'}])
     fzf('Laptop')
 
-    assert screens.list_devices(config) == ('device_actions', 'd1')
+    assert screens.list_devices(state) == ('device_actions', 'd1')
 
 
-def test_device_actions_transfers_playback_and_records_the_device(config, client):
+def test_device_actions_transfers_playback_and_records_the_device(state, client):
     fake = client()
 
-    assert screens.device_actions(config, 'd1') == ('home_screen',)
+    assert screens.device_actions(state, 'd1') == ('home_screen',)
     assert fake.named('transfer_playback') == [('transfer_playback', 'd1')]
-    assert config['active_device_id'] == 'd1'
+    assert state.active_device_id == 'd1'
+    # Persisted, not just remembered: a later session finds the same device.
+    assert AppState.from_config(state.config).active_device_id == 'd1'
 
 
 # --- home_screen -------------------------------------------------------------
 
 
-def test_home_screen_maps_the_label_to_a_screen(config, fzf):
+def test_home_screen_maps_the_label_to_a_screen(state, fzf):
     fzf('[ 1 ] Search Library')
 
-    assert screens.home_screen(config) == ('search',)
+    assert screens.home_screen(state) == ('search',)
 
 
-def test_home_screen_exits_on_an_empty_selection(config, fzf):
+def test_home_screen_exits_on_an_empty_selection(state, fzf):
     fzf('')
 
-    assert screens.home_screen(config) == (None,)
+    assert screens.home_screen(state) == (None,)
 
 
 # --- resume ------------------------------------------------------------------
 
 
-def test_resume_pauses_what_is_playing(config, client):
+def test_resume_pauses_what_is_playing(state, client):
     fake = client(playback=track_playback())
 
-    assert screens.resume(config) == ('home_screen',)
+    assert screens.resume(state) == ('home_screen',)
     assert fake.named('pause_playback')
     assert fake.named('start_playback') == []
 
 
-def test_resume_restarts_a_paused_playback(config, client):
+def test_resume_restarts_a_paused_playback(state, client):
     playback = track_playback()
     playback['is_playing'] = False
     fake = client(playback=playback)
 
-    screens.resume(config)
+    screens.resume(state)
 
     # Playback already has a device, so no device_id is needed.
     assert fake.named('start_playback') == [('start_playback', {})]
 
 
-def test_resume_redirects_to_devices_without_a_playback_or_active_device(config, client):
+def test_resume_redirects_to_devices_without_a_playback_or_active_device(state, client):
     fake = client(playback=None)
 
-    assert screens.resume(config) == ('list_devices',)
+    assert screens.resume(state) == ('list_devices',)
     assert fake.named('start_playback') == []
-    assert config['last_screen'] == 'resume'
+    assert state.pending_screen == ('resume', ())
 
 
-def test_resume_starts_on_the_active_device_with_a_single_call(config, client):
+def test_resume_starts_on_the_active_device_with_a_single_call(state, client):
     """
     The device id has to travel on the same start_playback call. A bare
     start_playback followed by a targeted one either 404s or starts playback
     twice.
     """
     fake = client(playback=None)
-    config['active_device_id'] = 'd1'
+    state.active_device_id = 'd1'
 
-    assert screens.resume(config) == ('home_screen',)
+    assert screens.resume(state) == ('home_screen',)
     assert fake.named('start_playback') == [('start_playback', {'device_id': 'd1'})]
 
 
@@ -348,38 +356,42 @@ def fzf_sink(monkeypatch):
     return _install
 
 
-def test_search_splits_the_selected_line(config, fzf_sink):
-    fzf_sink('Song :: Album :: A, B :: Road Trip :: pl-1 :: track-1')
+def test_search_parses_the_selected_line_into_a_track_ref(state, fzf_sink):
+    fzf_sink(SEPARATOR.join(('Song :: Album :: A, B :: Road Trip', 'track-1', 'pl-1')))
 
-    choice, props = screens.search(config)
+    choice, track = screens.search(state)
 
     assert choice == 'track_actions'
-    assert props == ['Song', 'Album', 'A, B', 'Road Trip', 'pl-1', 'track-1']
+    assert track.track_id == 'track-1'
+    assert track.playlist_id == 'pl-1'
+    assert track.display == 'Song :: Album :: A, B :: Road Trip'
 
 
-def test_search_returns_home_when_nothing_was_selected(config, fzf_sink):
+def test_search_returns_home_when_nothing_was_selected(state, fzf_sink):
     fzf_sink('')
 
-    assert screens.search(config) == ('home_screen',)
+    assert screens.search(state) == ('home_screen',)
 
 
-def test_track_actions_forwards_the_track_props(config, fzf):
+def test_track_actions_forwards_the_track_props(state, fzf):
     fzf('Play Track')
-    props = ['Song', 'Album', 'A', 'Road Trip', 'pl-1', 'track-1']
+    track = TrackRef('Song :: Album :: A :: Road Trip', 'track-1', 'pl-1')
 
-    assert screens.track_actions(config, props) == ('play_track', props)
+    assert screens.track_actions(state, track) == ('play_track', track)
 
 
-def test_track_actions_returns_to_search_on_an_empty_selection(config, fzf):
+def test_track_actions_returns_to_search_on_an_empty_selection(state, fzf):
     fzf('')
 
-    assert screens.track_actions(config, ['Song']) == ('search',)
+    assert screens.track_actions(state, TrackRef('Song', 'track-1', 'pl-1')) == (
+        'search',
+    )
 
 
-def test_track_actions_truncates_a_long_prompt(config, fzf):
+def test_track_actions_truncates_a_long_prompt(state, fzf):
     seen = fzf('Play Track')
 
-    screens.track_actions(config, ['A' * 40])
+    screens.track_actions(state, TrackRef('A' * 40, 'track-1', 'pl-1'))
 
     assert seen['prompts'][0] == '[{}...] > '.format('A' * 20)
 
@@ -387,27 +399,31 @@ def test_track_actions_truncates_a_long_prompt(config, fzf):
 # --- playback ----------------------------------------------------------------
 
 
-def test_play_track_starts_the_track_on_the_active_device(config, client):
+def test_play_track_starts_the_track_on_the_active_device(state, client):
     fake = client(playback=None)
-    config['active_device_id'] = 'd1'
+    state.active_device_id = 'd1'
 
-    assert screens.play_track(config, ['Song', 'pl-1', 'track-1']) == ('search',)
+    track = TrackRef('Song', 'track-1', 'pl-1')
+
+    assert screens.play_track(state, track) == ('search',)
     assert fake.named('start_playback') == [
         ('start_playback', {'device_id': 'd1', 'uris': ['spotify:track:track-1']})
     ]
 
 
-def test_play_track_redirects_when_there_is_no_device(config, client):
+def test_play_track_redirects_when_there_is_no_device(state, client):
     fake = client(playback=None)
 
-    assert screens.play_track(config, ['Song', 'pl-1', 'track-1']) == ('list_devices',)
+    track = TrackRef('Song', 'track-1', 'pl-1')
+
+    assert screens.play_track(state, track) == ('list_devices',)
     assert fake.named('start_playback') == []
 
 
-def test_play_track_in_playlist_uses_the_playlist_as_context(config, client):
+def test_play_track_in_playlist_uses_the_playlist_as_context(state, client):
     fake = client(playback=track_playback())
 
-    result = screens.play_track_in_playlist(config, ['Song', 'pl-1', 'track-1'])
+    result = screens.play_track_in_playlist(state, TrackRef('Song', 'track-1', 'pl-1'))
 
     assert result == ('search',)
     assert fake.named('start_playback') == [
@@ -422,15 +438,17 @@ def test_play_track_in_playlist_uses_the_playlist_as_context(config, client):
     ]
 
 
-def test_play_track_in_playlist_reads_the_last_two_fields(config, client):
+def test_play_track_in_playlist_is_unaffected_by_the_separator_in_a_name(state, client):
     """
-    A name containing the ' :: ' separator adds fields at the front, so the id
-    and playlist id are addressed from the end.
+    A name containing ' :: ' used to add fields, which is why the ids were
+    addressed by negative index. They have names now, and the name is just
+    text inside the display field.
     """
     fake = client(playback=track_playback())
 
     screens.play_track_in_playlist(
-        config, ['Intro', 'Reprise', 'Album', 'A', 'Road Trip', 'pl-1', 'track-1']
+        state,
+        TrackRef('Intro :: Reprise :: Album :: A :: Road Trip', 'track-1', 'pl-1'),
     )
 
     kwargs = fake.named('start_playback')[0][1]
@@ -438,48 +456,79 @@ def test_play_track_in_playlist_reads_the_last_two_fields(config, client):
     assert kwargs['offset'] == {'uri': 'spotify:track:track-1'}
 
 
-def test_play_track_in_playlist_redirects_when_there_is_no_device(config, client):
+def test_play_track_in_playlist_redirects_when_there_is_no_device(state, client):
     fake = client(playback=None)
 
-    result = screens.play_track_in_playlist(config, ['Song', 'pl-1', 'track-1'])
+    result = screens.play_track_in_playlist(state, TrackRef('Song', 'track-1', 'pl-1'))
 
     assert result == ('list_devices',)
     assert fake.named('start_playback') == []
 
 
-def test_the_device_redirect_round_trips_back_to_the_original_screen(config, client):
+def test_the_device_redirect_round_trips_back_to_the_original_screen(state, client):
     """
-    The whole point of recording last_screen: picking a device has to resume
-    what the user was actually trying to do.
+    The whole point of recording the pending screen: picking a device has to
+    resume what the user was actually trying to do.
     """
-    props = ['Song', 'Album', 'A', 'Road Trip', 'pl-1', 'track-1']
+    props = TrackRef('Song :: Album :: A :: Road Trip', 'track-1', 'pl-1')
     client(playback=None)
 
-    assert screens.play_track(config, props) == ('list_devices',)
+    assert screens.play_track(state, props) == ('list_devices',)
 
     fake = client()
-    assert screens.device_actions(config, 'd1') == ('play_track', props)
+    assert screens.device_actions(state, 'd1') == ('play_track', props)
     assert fake.named('transfer_playback') == [('transfer_playback', 'd1')]
     # The redirect state is consumed, so a later visit goes home instead.
-    assert 'last_screen' not in config
-    assert screens.device_actions(config, 'd1') == ('home_screen',)
+    assert state.pending_screen is None
+    assert screens.device_actions(state, 'd1') == ('home_screen',)
 
 
-def test_the_device_redirect_round_trips_resume(config, client):
+def test_the_device_redirect_round_trips_resume(state, client):
     client(playback=None)
 
-    assert screens.resume(config) == ('list_devices',)
+    assert screens.resume(state) == ('list_devices',)
 
     client()
-    assert screens.device_actions(config, 'd1') == ('resume',)
+    assert screens.device_actions(state, 'd1') == ('resume',)
+
+
+def device_gone():
+    return SpotifyException(404, -1, 'Device not found')
+
+
+def test_a_persisted_device_that_no_longer_exists_is_forgotten(state, client):
+    """
+    Once the device id comes off disk it can be a phone that has been off for a
+    week. The user should get the device picker they would have got with no
+    device chosen at all, not a traceback out of cli.main.
+    """
+    props = TrackRef('Song', 'track-1', 'pl-1')
+    client(playback=None, start_error=device_gone())
+    state.set_active_device('d1')
+
+    assert screens.play_track(state, props) == ('list_devices',)
+    assert state.active_device_id is None
+    # Forgotten on disk too, or the next session retries the dead device.
+    assert AppState.from_config(state.config).active_device_id is None
+    # And the redirect still knows what the user was trying to do.
+    assert state.pending_screen == ('play_track', (props,))
+
+
+def test_resume_forgets_a_persisted_device_that_no_longer_exists(state, client):
+    client(playback=None, start_error=device_gone())
+    state.set_active_device('d1')
+
+    assert screens.resume(state) == ('list_devices',)
+    assert state.active_device_id is None
+    assert state.pending_screen == ('resume', ())
 
 
 # --- update_cache ------------------------------------------------------------
 
 
-def test_update_cache_screen_delegates_and_returns_home(config, monkeypatch):
+def test_update_cache_screen_delegates_and_returns_home(state, monkeypatch):
     calls = []
     monkeypatch.setattr(screens.spotify, 'update_cache', lambda cfg: calls.append(cfg))
 
-    assert screens.update_cache(config) == ('home_screen',)
-    assert calls == [config]
+    assert screens.update_cache(state) == ('home_screen',)
+    assert calls == [state.config]
