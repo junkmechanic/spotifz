@@ -68,7 +68,6 @@ def cache_data(spotify_client, config):
                 trk['track']['album'],
                 ['artists', 'id', 'name', 'release_date', 'total_tracks', 'uri'],
             )
-            playlist['tracks'].append(track)
             update_unit(
                 config['data_paths']['track_path'],
                 track,
@@ -81,6 +80,11 @@ def cache_data(spotify_client, config):
                 playlist['id'],
                 playlist['name'],
             )
+            # added_at belongs to the track-playlist pair, not to the track, so
+            # it can only live on the playlist's copy of it: the per-track file
+            # is keyed by track id alone and would end up holding whichever
+            # playlist happened to be cached last.
+            playlist['tracks'].append(dict(track, added_at=trk.get('added_at')))
         with open(
             os.path.join(config['data_paths']['playlist_path'], playlist['id']),
             'w',

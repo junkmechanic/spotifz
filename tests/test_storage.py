@@ -164,6 +164,47 @@ def test_cache_data_tolerates_a_track_without_those_fields(config, make_track):
     assert track['name'] == 'Song'
 
 
+def test_cache_data_keeps_added_at_on_the_playlist_entry_only(config, make_track):
+    """
+    added_at describes the track-playlist pair, so it belongs to the playlist's
+    copy of the track. The per-track file is keyed by track id alone: a track
+    in three playlists has three added_at values and no way to hold them.
+    """
+    client = FakeSpotify(
+        pages([playlist_response('pl-1', 'First')]),
+        {
+            'pl-1': pages(
+                [
+                    {
+                        'track': make_track(track_id='track-1'),
+                        'added_at': '2019-04-03T10:00:00Z',
+                    }
+                ]
+            )
+        },
+    )
+
+    cache_data(client, config)
+
+    playlist = read(os.path.join(config['data_paths']['playlist_path'], 'pl-1'))
+    assert playlist['tracks'][0]['added_at'] == '2019-04-03T10:00:00Z'
+
+    track = read(os.path.join(config['data_paths']['track_path'], 'track-1'))
+    assert 'added_at' not in track
+
+
+def test_cache_data_records_no_added_at_when_spotify_sends_none(config, make_track):
+    client = FakeSpotify(
+        pages([playlist_response('pl-1', 'First')]),
+        {'pl-1': pages([{'track': make_track(track_id='track-1')}])},
+    )
+
+    cache_data(client, config)
+
+    playlist = read(os.path.join(config['data_paths']['playlist_path'], 'pl-1'))
+    assert playlist['tracks'][0]['added_at'] is None
+
+
 def test_cache_data_paginates_through_a_playlists_tracks(config, make_track):
     client = FakeSpotify(
         pages([playlist_response('pl-1', 'First')]),
