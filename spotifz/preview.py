@@ -16,6 +16,7 @@ import datetime
 import json
 import os
 import sys
+import unicodedata
 
 INDENT = '  '
 LABEL_WIDTH = 12
@@ -73,14 +74,36 @@ def clean(value):
     return ' '.join(str(value if value is not None else '').split())
 
 
+def char_width(char):
+    if unicodedata.combining(char):
+        return 0
+    return 2 if unicodedata.east_asian_width(char) in ('W', 'F') else 1
+
+
+def display_width(text):
+    """
+    Columns on screen, not characters. A CJK title is twice as wide as len()
+    says, and there are enough of them in a real library to push a row past the
+    right edge -- where fzf clips it, silently and mid-word.
+    """
+    return sum(char_width(char) for char in text)
+
+
 def truncate(text, width):
     if width <= 0:
         return ''
-    if len(text) <= width:
+    if display_width(text) <= width:
         return text
     if width == 1:
         return ELLIPSIS
-    return text[: width - 1].rstrip() + ELLIPSIS
+    kept, used = [], 0
+    for char in text:
+        # Leave the last column for the ellipsis.
+        if used + char_width(char) > width - 1:
+            break
+        kept.append(char)
+        used += char_width(char)
+    return ''.join(kept).rstrip() + ELLIPSIS
 
 
 def artist_names(entity):
@@ -99,11 +122,11 @@ def join_names(names, width):
     if not names:
         return ''
     joined = ', '.join(names)
-    if len(joined) <= width:
+    if display_width(joined) <= width:
         return joined
     for kept in range(len(names) - 1, 0, -1):
         candidate = '{}, +{} more'.format(', '.join(names[:kept]), len(names) - kept)
-        if len(candidate) <= width:
+        if display_width(candidate) <= width:
             return candidate
     return truncate(names[0], width)
 
@@ -120,15 +143,20 @@ def format_duration(milliseconds):
     return '{}:{:02d}'.format(minutes, seconds)
 
 
+def _counts(value):
+    return isinstance(value, int) and not isinstance(value, bool) and value >= 1
+
+
 def format_track_number(number, total):
     """
     'Track 11' is a number with no scale. With the album total it says where in
-    the record you are, which is the whole reason the row is here.
+    the record you are, which is the whole reason the row is here -- and on a
+    one-track album there is no scale to give, so the row goes.
     """
-    if not isinstance(number, int) or isinstance(number, bool) or number < 1:
+    if not _counts(number):
         return ''
-    if isinstance(total, int) and not isinstance(total, bool) and total >= number:
-        return '{} of {}'.format(number, total)
+    if _counts(total):
+        return '' if total == 1 else '{} of {}'.format(number, total)
     return str(number)
 
 
@@ -213,15 +241,24 @@ def detail_rows(track, playlist_name, added_at, width, now):
     album = track.get('album') or {}
     album_name = clean(album.get('name'))
     year = release_year(album.get('release_date'))
-    if album_name and year:
-        album_name = '{} ({})'.format(album_name, year)
 
-    recording = [('Album', album_name)]
-    # Only when it differs from the performer: that is the compilation and
-    # soundtrack tell, and noise on every other track.
-    album_artists = artist_names(album)
-    if album_artists and album_artists != artist_names(track):
-        recording.append(('Album by', join_names(album_artists, width)))
+    # A single carries the track's own name as its album, so the row would say
+    # the title back to you. Keep the year, which is the only thing it adds.
+    # album_type would say this outright but is not cached; a one-track album
+    # under the same name is the same fact.
+    if album.get('total_tracks') == 1 and album_name == clean(track.get('name')):
+        recording = [('Single', year)]
+    else:
+        if album_name and year:
+            album_name = '{} ({})'.format(album_name, year)
+        recording = [('Album', album_name)]
+        # Only when it differs from the performer: that is the compilation and
+        # soundtrack tell, and noise on every other track. A single has no
+        # compilation to reveal -- there the difference is a featured artist,
+        # which the line under the title already shows.
+        album_artists = artist_names(album)
+        if album_artists and album_artists != artist_names(track):
+            recording.append(('Album by', join_names(album_artists, width)))
     recording.append(
         (
             'Track',

@@ -102,6 +102,61 @@ def test_names_the_album_artist_only_when_it_differs(
     assert '  Album by    Various Artists\n' in pane(preview, track_dir) + '\n'
 
 
+def test_collapses_the_album_row_of_a_single(
+    preview, track_dir, cache_track, write_track
+):
+    """
+    A single carries the track's own name as its album, so the row says the
+    title back to you and 'Track 1 of 1' gives a position with no scale. Both
+    go; the year, the only thing the album added, stays. album_type would say
+    outright that it is a single, but is not cached -- a one-track album under
+    the same name is the same fact.
+    """
+    track = cache_track(name='Sunset Lover')
+    track['album'].update(
+        {'name': 'Sunset Lover', 'total_tracks': 1, 'release_date': '2016-03-04'}
+    )
+    write_track(track)
+
+    rendered = pane(preview, track_dir)
+
+    assert '  Single      2016\n' in rendered + '\n'
+    assert 'Album' not in rendered
+    assert 'Track' not in rendered
+
+
+def test_keeps_the_album_row_of_a_one_track_album_named_differently(
+    preview, track_dir, cache_track, write_track
+):
+    """One track, but not the same name: that is an album, oddly sized."""
+    track = cache_track(name='Sunset Lover')
+    track['album'].update({'name': 'The EP', 'total_tracks': 1})
+    write_track(track)
+
+    rendered = pane(preview, track_dir)
+
+    assert '  Album       The EP (1975)\n' in rendered + '\n'
+    # Still no position, since one of one is not a position.
+    assert 'Track' not in rendered
+
+
+def test_says_nothing_about_the_album_artist_of_a_single(
+    preview, track_dir, cache_track, write_track
+):
+    """
+    The album-artist row is the compilation tell. A single has no compilation
+    to reveal, so a differing album artist there is a featured credit -- which
+    the line under the title already carries.
+    """
+    track = cache_track(name='Sunset Lover')
+    track['album'].update(
+        {'name': 'Sunset Lover', 'total_tracks': 1, 'artists': [{'name': 'Someone Else'}]}
+    )
+    write_track(track)
+
+    assert 'Album by' not in pane(preview, track_dir)
+
+
 def test_stacks_the_values_in_a_narrow_pane(preview, track_dir, cache_track):
     """
     Under the threshold the label column costs more room than it explains, so
@@ -258,18 +313,49 @@ def test_keeps_a_name_carrying_a_newline_on_one_line(preview, track_dir, cache_t
     assert rendered.splitlines()[0] == '  First Second'
 
 
-def test_never_widens_a_row_past_the_pane(preview, track_dir, cache_track, write_track):
+@pytest.mark.parametrize(
+    'name',
+    [
+        'A Really Very Long Song Title Indeed',
+        # Twice as wide as len() reports, and a real library holds plenty.
+        'ホワイル・マイ・レディ・スリープス',
+    ],
+)
+def test_never_widens_a_row_past_the_pane(
+    preview, track_dir, cache_track, write_track, name
+):
     """
     fzf does not wrap the preview, it clips it, so a row wider than the pane is
     a row with its end missing and no sign that anything is gone.
     """
-    track = cache_track(name='A Really Very Long Song Title Indeed')
+    track = cache_track(name=name)
     track['album']['name'] = 'An Album With A Long Name As Well'
     write_track(track)
 
     for width in (12, 20, 46, 80):
         for line in pane(preview, track_dir, width=width).splitlines():
-            assert len(line) <= width
+            assert preview.display_width(line) <= width
+
+
+def test_measures_a_name_in_columns_not_characters(preview):
+    """
+    len() is not a width: a CJK title takes two columns per character, and a
+    combining mark none at all.
+    """
+    assert preview.display_width('クロッシングス') == 14
+    assert preview.display_width('Album') == 5
+    assert preview.display_width('e\u0301') == 1
+
+
+def test_truncates_a_double_width_name_on_a_column_boundary(preview):
+    """
+    Cutting by characters would leave the row a column over the edge, which is
+    the failure this exists to prevent: the last kept character must fit whole.
+    """
+    truncated = preview.truncate('ホワイル・マイ・レディ', 10)
+
+    assert preview.display_width(truncated) <= 10
+    assert truncated.endswith('…')
 
 
 def test_colours_the_title_block_unless_no_color_is_set(preview, track_dir, cache_track):
