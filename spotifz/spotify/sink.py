@@ -3,7 +3,8 @@ import os
 from glob import glob
 from typing import NamedTuple
 
-# The candidate line fzf reads is `<display>\x1f<track_id>\x1f<playlist_id>`.
+# The candidate line fzf reads is
+# `<display>\x1f<track_id>\x1f<playlist_id>\x1f<playlist_name>\x1f<added_at>`.
 #
 # 0x1f (ASCII Unit Separator) is the only field separator, and it cannot occur
 # in a track, album or playlist name. ' :: ' is decoration inside the display
@@ -17,12 +18,20 @@ DISPLAY_SEPARATOR = ' :: '
 DISPLAY_FIELD = 1
 TRACK_ID_FIELD = 2
 PLAYLIST_ID_FIELD = 3
+# Fields 4 and 5 exist for the preview pane, which is handed values rather than
+# a line: it renders the playlist a track was picked from and when it was added
+# there. Both belong to the track-playlist pair, so neither can be read from
+# the per-track cache file the preview opens.
+PLAYLIST_NAME_FIELD = 4
+ADDED_AT_FIELD = 5
 
 
 class TrackRef(NamedTuple):
     display: str
     track_id: str
     playlist_id: str
+    playlist_name: str
+    added_at: str
 
     @property
     def name(self):
@@ -51,12 +60,29 @@ def format_track_line(track, playlist):
             playlist['name'],
         )
     )
-    return SEPARATOR.join((display, track['id'], playlist['id'])) + '\n'
+    # The playlist name is deliberately carried twice: once as decoration
+    # inside the display field, and once whole in field 4. The display field is
+    # a presentation string -- _clean'ed and DISPLAY_SEPARATOR-joined -- and
+    # re-parsing it to recover a name is exactly the fragility this format
+    # removed. Two fields written here together cannot drift.
+    return (
+        SEPARATOR.join(
+            (
+                display,
+                track['id'],
+                playlist['id'],
+                _clean(playlist['name']),
+                # Absent from any Spotify item that arrives without it.
+                _clean(track.get('added_at') or ''),
+            )
+        )
+        + '\n'
+    )
 
 
 def parse_track_line(line):
-    display, track_id, playlist_id = line.split(SEPARATOR)
-    return TrackRef(display, track_id, playlist_id)
+    display, track_id, playlist_id, playlist_name, added_at = line.split(SEPARATOR)
+    return TrackRef(display, track_id, playlist_id, playlist_name, added_at)
 
 
 def sink_all_tracks(config, fifo_path):

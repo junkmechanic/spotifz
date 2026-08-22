@@ -23,7 +23,6 @@ Selected Track:
 
 - current album in playlist
 - play history
-- display models for preview
 - current playback to lead to searching by artist, album etc as the input query to fzf
 
 # Installation

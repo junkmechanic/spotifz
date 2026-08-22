@@ -58,12 +58,16 @@ def cache_data(spotify_client, config):
             additional_types=('track',),
         ):
             track = extract_fields(
-                trk['track'], ['artists', 'id', 'name', 'track_number', 'uri']
+                trk['track'],
+                ['artists', 'duration_ms', 'id', 'name', 'track_number', 'uri'],
             )
+            # The album is nested inside the track file as well as written to
+            # its own, so the preview reads release_date and total_tracks
+            # without opening a second file.
             track['album'] = extract_fields(
-                trk['track']['album'], ['artists', 'id', 'name', 'uri']
+                trk['track']['album'],
+                ['artists', 'id', 'name', 'release_date', 'total_tracks', 'uri'],
             )
-            playlist['tracks'].append(track)
             update_unit(
                 config['data_paths']['track_path'],
                 track,
@@ -76,6 +80,11 @@ def cache_data(spotify_client, config):
                 playlist['id'],
                 playlist['name'],
             )
+            # added_at belongs to the track-playlist pair, not to the track, so
+            # it can only live on the playlist's copy of it: the per-track file
+            # is keyed by track id alone and would end up holding whichever
+            # playlist happened to be cached last.
+            playlist['tracks'].append(dict(track, added_at=trk.get('added_at')))
         with open(
             os.path.join(config['data_paths']['playlist_path'], playlist['id']),
             'w',

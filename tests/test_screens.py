@@ -6,6 +6,15 @@ from spotifz.spotify.sink import SEPARATOR, TrackRef
 from spotifz.state import AppState
 
 
+def track_ref(display, track_id='track-1', playlist_id='pl-1'):
+    """
+    A TrackRef with the pair fields filled in. The screens below never read
+    playlist_name or added_at -- those exist for the preview pane -- so naming
+    them at every call site would be noise.
+    """
+    return TrackRef(display, track_id, playlist_id, 'Road Trip', '2019-04-03T10:00:00Z')
+
+
 class FakeClient:
     def __init__(self, playback=None, devices=(), start_error=None):
         self._playback = playback
@@ -357,7 +366,17 @@ def fzf_sink(monkeypatch):
 
 
 def test_search_parses_the_selected_line_into_a_track_ref(state, fzf_sink):
-    fzf_sink(SEPARATOR.join(('Song :: Album :: A, B :: Road Trip', 'track-1', 'pl-1')))
+    fzf_sink(
+        SEPARATOR.join(
+            (
+                'Song :: Album :: A, B :: Road Trip',
+                'track-1',
+                'pl-1',
+                'Road Trip',
+                '2019-04-03T10:00:00Z',
+            )
+        )
+    )
 
     choice, track = screens.search(state)
 
@@ -365,6 +384,8 @@ def test_search_parses_the_selected_line_into_a_track_ref(state, fzf_sink):
     assert track.track_id == 'track-1'
     assert track.playlist_id == 'pl-1'
     assert track.display == 'Song :: Album :: A, B :: Road Trip'
+    assert track.playlist_name == 'Road Trip'
+    assert track.added_at == '2019-04-03T10:00:00Z'
 
 
 def test_search_returns_home_when_nothing_was_selected(state, fzf_sink):
@@ -375,7 +396,7 @@ def test_search_returns_home_when_nothing_was_selected(state, fzf_sink):
 
 def test_track_actions_forwards_the_track_props(state, fzf):
     fzf('Play Track')
-    track = TrackRef('Song :: Album :: A :: Road Trip', 'track-1', 'pl-1')
+    track = track_ref('Song :: Album :: A :: Road Trip')
 
     assert screens.track_actions(state, track) == ('play_track', track)
 
@@ -383,15 +404,13 @@ def test_track_actions_forwards_the_track_props(state, fzf):
 def test_track_actions_returns_to_search_on_an_empty_selection(state, fzf):
     fzf('')
 
-    assert screens.track_actions(state, TrackRef('Song', 'track-1', 'pl-1')) == (
-        'search',
-    )
+    assert screens.track_actions(state, track_ref('Song')) == ('search',)
 
 
 def test_track_actions_truncates_a_long_prompt(state, fzf):
     seen = fzf('Play Track')
 
-    screens.track_actions(state, TrackRef('A' * 40, 'track-1', 'pl-1'))
+    screens.track_actions(state, track_ref('A' * 40))
 
     assert seen['prompts'][0] == '[{}...] > '.format('A' * 20)
 
@@ -403,7 +422,7 @@ def test_play_track_starts_the_track_on_the_active_device(state, client):
     fake = client(playback=None)
     state.active_device_id = 'd1'
 
-    track = TrackRef('Song', 'track-1', 'pl-1')
+    track = track_ref('Song')
 
     assert screens.play_track(state, track) == ('search',)
     assert fake.named('start_playback') == [
@@ -414,7 +433,7 @@ def test_play_track_starts_the_track_on_the_active_device(state, client):
 def test_play_track_redirects_when_there_is_no_device(state, client):
     fake = client(playback=None)
 
-    track = TrackRef('Song', 'track-1', 'pl-1')
+    track = track_ref('Song')
 
     assert screens.play_track(state, track) == ('list_devices',)
     assert fake.named('start_playback') == []
@@ -423,7 +442,7 @@ def test_play_track_redirects_when_there_is_no_device(state, client):
 def test_play_track_in_playlist_uses_the_playlist_as_context(state, client):
     fake = client(playback=track_playback())
 
-    result = screens.play_track_in_playlist(state, TrackRef('Song', 'track-1', 'pl-1'))
+    result = screens.play_track_in_playlist(state, track_ref('Song'))
 
     assert result == ('search',)
     assert fake.named('start_playback') == [
@@ -448,7 +467,7 @@ def test_play_track_in_playlist_is_unaffected_by_the_separator_in_a_name(state, 
 
     screens.play_track_in_playlist(
         state,
-        TrackRef('Intro :: Reprise :: Album :: A :: Road Trip', 'track-1', 'pl-1'),
+        track_ref('Intro :: Reprise :: Album :: A :: Road Trip'),
     )
 
     kwargs = fake.named('start_playback')[0][1]
@@ -459,7 +478,7 @@ def test_play_track_in_playlist_is_unaffected_by_the_separator_in_a_name(state, 
 def test_play_track_in_playlist_redirects_when_there_is_no_device(state, client):
     fake = client(playback=None)
 
-    result = screens.play_track_in_playlist(state, TrackRef('Song', 'track-1', 'pl-1'))
+    result = screens.play_track_in_playlist(state, track_ref('Song'))
 
     assert result == ('list_devices',)
     assert fake.named('start_playback') == []
@@ -470,7 +489,7 @@ def test_the_device_redirect_round_trips_back_to_the_original_screen(state, clie
     The whole point of recording the pending screen: picking a device has to
     resume what the user was actually trying to do.
     """
-    props = TrackRef('Song :: Album :: A :: Road Trip', 'track-1', 'pl-1')
+    props = track_ref('Song :: Album :: A :: Road Trip')
     client(playback=None)
 
     assert screens.play_track(state, props) == ('list_devices',)
@@ -502,7 +521,7 @@ def test_a_persisted_device_that_no_longer_exists_is_forgotten(state, client):
     week. The user should get the device picker they would have got with no
     device chosen at all, not a traceback out of cli.main.
     """
-    props = TrackRef('Song', 'track-1', 'pl-1')
+    props = track_ref('Song')
     client(playback=None, start_error=device_gone())
     state.set_active_device('d1')
 
