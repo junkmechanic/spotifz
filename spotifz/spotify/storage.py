@@ -58,10 +58,15 @@ def cache_data(spotify_client, config):
             additional_types=('track',),
         ):
             track = extract_fields(
-                trk['track'], ['artists', 'id', 'name', 'track_number', 'uri']
+                trk['track'],
+                ['artists', 'duration_ms', 'id', 'name', 'track_number', 'uri'],
             )
+            # The album is nested inside the track file as well as written to
+            # its own, so the preview reads release_date and total_tracks
+            # without opening a second file.
             track['album'] = extract_fields(
-                trk['track']['album'], ['artists', 'id', 'name', 'uri']
+                trk['track']['album'],
+                ['artists', 'id', 'name', 'release_date', 'total_tracks', 'uri'],
             )
             playlist['tracks'].append(track)
             update_unit(

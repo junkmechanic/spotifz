@@ -117,6 +117,53 @@ def test_cache_data_writes_a_file_per_track_album_and_playlist(config, make_trac
     assert 'extra' not in playlist
 
 
+def test_cache_data_keeps_the_fields_the_preview_needs(config, make_track):
+    """
+    duration_ms on the track, release_date and total_tracks on the album: the
+    preview pane renders all three, and the album ones have to survive on the
+    album nested inside the track file, which is the only file it opens.
+    """
+    client = FakeSpotify(
+        pages([playlist_response('pl-1', 'First')]),
+        {'pl-1': pages([{'track': make_track(track_id='track-1')}])},
+    )
+
+    cache_data(client, config)
+
+    track = read(os.path.join(config['data_paths']['track_path'], 'track-1'))
+    assert track['duration_ms'] == 215000
+    assert track['album']['release_date'] == '1975-11-21'
+    assert track['album']['total_tracks'] == 12
+
+    album = read(os.path.join(config['data_paths']['album_path'], 'album-1'))
+    assert album['release_date'] == '1975-11-21'
+    assert album['total_tracks'] == 12
+
+
+def test_cache_data_tolerates_a_track_without_those_fields(config, make_track):
+    """
+    Spotify does not promise them on every response, and extract_fields only
+    copies what it finds, so an absent field must leave the entry writable
+    rather than raising.
+    """
+    sparse = make_track(track_id='track-1')
+    del sparse['duration_ms']
+    del sparse['album']['release_date']
+    del sparse['album']['total_tracks']
+    client = FakeSpotify(
+        pages([playlist_response('pl-1', 'First')]),
+        {'pl-1': pages([{'track': sparse}])},
+    )
+
+    cache_data(client, config)
+
+    track = read(os.path.join(config['data_paths']['track_path'], 'track-1'))
+    assert 'duration_ms' not in track
+    assert 'release_date' not in track['album']
+    assert 'total_tracks' not in track['album']
+    assert track['name'] == 'Song'
+
+
 def test_cache_data_paginates_through_a_playlists_tracks(config, make_track):
     client = FakeSpotify(
         pages([playlist_response('pl-1', 'First')]),

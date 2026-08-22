@@ -51,6 +51,7 @@ def make_track():
             'id': track_id,
             'name': name,
             'track_number': 1,
+            'duration_ms': 215000,
             'uri': 'spotify:track:{}'.format(track_id),
             'artists': artist_list,
             'album': {
@@ -58,6 +59,8 @@ def make_track():
                 'name': album,
                 'uri': 'spotify:album:album-1',
                 'artists': artist_list,
+                'release_date': '1975-11-21',
+                'total_tracks': 12,
             },
         }
 
