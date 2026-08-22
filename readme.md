@@ -1,7 +1,7 @@
 Fuzzy search songs in your Spotify playlists using [fzf](https://github.com/junegunn/fzf)
 in the terminal
 
-[![](/assets/search_demo.gif)](https://junkmechanic.github.io/2019/12/24/searching-in-spotify-playlists-with-fzf/)
+[![](/assets/spotifz_demo.gif)](https://junkmechanic.github.io/2019/12/24/searching-in-spotify-playlists-with-fzf/)
 
 # Features
 
@@ -24,16 +24,14 @@ Selected Track:
 - current album in playlist
 - play history
 - display models for preview
-- screen models that store passed args and the previous screen
 - current playback to lead to searching by artist, album etc as the input query to fzf
-- using a db (perhaps sqlite) instead of json blobs on disk
 
 # Installation
 
 1. Make sure you have set up a developer account with Spotify.
 2. Create an app on Spotify Dev and obtain the API key.
 3. In the app settings, register a redirect URI that matches `redirect_uri` in
-   your config *exactly*, including the trailing slash. Spotify no longer
+   your config _exactly_, including the trailing slash. Spotify no longer
    accepts `localhost`, so use a loopback IP literal with an explicit port,
    e.g. `http://127.0.0.1:8080/`.
 4. Copy `config.json` to `~/.config/spotifz.json` and fill in the required json fields.
