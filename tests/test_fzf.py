@@ -13,7 +13,23 @@ from spotifz.helpers.fzf import (
     run_fzf,
     run_fzf_sink,
 )
-from spotifz.spotify.sink import DISPLAY_FIELD, SEPARATOR, TRACK_ID_FIELD
+from spotifz.spotify.sink import (
+    ADDED_AT_FIELD,
+    DISPLAY_FIELD,
+    PLAYLIST_NAME_FIELD,
+    SEPARATOR,
+    TRACK_ID_FIELD,
+)
+
+LINE = SEPARATOR.join(
+    (
+        'Song One :: Album :: A, B :: Road Trip',
+        'track-1',
+        'pl-1',
+        'Road Trip',
+        '2019-04-03T10:00:00Z',
+    )
+)
 
 
 @pytest.fixture
@@ -64,8 +80,10 @@ def as_fzf_would(preview, line):
     hand against fzf 0.74.1 -- the suite must never reach the real binary,
     which blocks forever without a TTY.
     """
-    field = line.split(SEPARATOR)[TRACK_ID_FIELD - 1]
-    return preview.replace('{%d}' % TRACK_ID_FIELD, shlex.quote(field))
+    fields = line.split(SEPARATOR)
+    for index, field in enumerate(fields, start=1):
+        preview = preview.replace('{%d}' % index, shlex.quote(field))
+    return preview
 
 
 def render_preview(track_dir, line, track_id='track-1', name='Song One'):
@@ -76,22 +94,58 @@ def render_preview(track_dir, line, track_id='track-1', name='Song One'):
     """
     os.makedirs(track_dir, exist_ok=True)
     with open(os.path.join(track_dir, track_id), 'w') as ofile:
-        json.dump({'id': track_id, 'name': name}, ofile)
+        json.dump(
+            {
+                'id': track_id,
+                'name': name,
+                'track_number': 1,
+                'duration_ms': 215000,
+                'artists': [{'name': 'A'}],
+                'album': {'name': 'Album', 'release_date': '1975', 'total_tracks': 12},
+            },
+            ofile,
+        )
 
     return subprocess.run(
         as_fzf_would(preview_command(track_dir), line),
         shell=True,
         capture_output=True,
         text=True,
+        env=dict(os.environ, NO_COLOR='1', FZF_PREVIEW_COLUMNS='100'),
     )
 
 
-def test_the_preview_command_renders_the_track_json(config):
-    line = 'Song One :: Album :: A, B :: Road Trip\x1ftrack-1\x1fpl-1'
+def test_the_preview_command_renders_the_pane(config):
+    result = render_preview(config['data_paths']['track_path'], LINE)
 
-    result = render_preview(config['data_paths']['track_path'], line)
-
+    assert result.returncode == 0
+    assert result.stderr == ''
     assert 'Song One' in result.stdout
+    # The pane, not the file: the JSON dump had none of these.
+    assert 'Album       Album (1975)' in result.stdout
+    assert 'Length      3:35' in result.stdout
+
+
+def test_the_preview_command_passes_the_pair_fields_from_the_line(config):
+    """
+    The playlist name and added_at are on the line and nowhere else -- if the
+    placeholders were wrong these two rows would silently disappear.
+    """
+    result = render_preview(config['data_paths']['track_path'], LINE)
+
+    assert 'Playlist    Road Trip' in result.stdout
+    assert 'Added       3 April 2019' in result.stdout
+
+
+def test_the_preview_command_is_one_process(config):
+    """
+    The pipe into `(highlight ... || cat)` is gone with the JSON dump. fzf runs
+    the preview under $SHELL, and that subshell is a syntax error in fish.
+    """
+    preview = preview_command(config['data_paths']['track_path'])
+
+    assert '|' not in preview
+    assert '(' not in preview
 
 
 def test_the_preview_command_survives_a_space_in_the_path(config, tmp_path):
@@ -99,9 +153,7 @@ def test_the_preview_command_survives_a_space_in_the_path(config, tmp_path):
     The old command interpolated the directory unquoted and piped it through
     xargs, which split it on whitespace.
     """
-    line = 'Song One :: Album :: A, B :: Road Trip\x1ftrack-1\x1fpl-1'
-
-    result = render_preview(str(tmp_path / 'cache dir' / 'tracks'), line)
+    result = render_preview(str(tmp_path / 'cache dir' / 'tracks'), LINE)
 
     assert 'Song One' in result.stdout
 
@@ -112,7 +164,15 @@ def test_the_preview_command_renders_a_track_whose_name_holds_the_separator(conf
     field, so the hard-coded sixth one was the playlist id and the pane
     silently showed nothing.
     """
-    line = 'Intro :: Reprise :: Album :: A, B :: Road Trip\x1ftrack-1\x1fpl-1'
+    line = SEPARATOR.join(
+        (
+            'Intro :: Reprise :: Album :: A, B :: Road Trip',
+            'track-1',
+            'pl-1',
+            'Road Trip',
+            '2019-04-03T10:00:00Z',
+        )
+    )
 
     result = render_preview(config['data_paths']['track_path'], line)
 
@@ -162,7 +222,8 @@ def test_run_fzf_sink_asks_fzf_to_extract_the_id_field(config, fake_fzf):
 
     preview = cmd[cmd.index('--preview') + 1]
     assert config['data_paths']['track_path'] in preview
-    assert '{%d}' % TRACK_ID_FIELD in preview
+    for field in (TRACK_ID_FIELD, PLAYLIST_NAME_FIELD, ADDED_AT_FIELD):
+        assert '{%d}' % field in preview
 
 
 def test_run_fzf_sink_removes_the_fifo_on_the_normal_path(config, fake_fzf):
