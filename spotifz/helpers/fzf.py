@@ -44,10 +44,6 @@ def preview_command(track_dir):
     and the separator never reaches a shell. Verified against fzf 0.74.1:
     --with-nth hides the id fields from the display and from matching, but not
     from these placeholders.
-
-    One process, no pipe and no subshell: the renderer needs neither, and the
-    `( ... || cat )` this replaces was invalid in fish, which fzf would happily
-    run it under.
     """
     # sys.executable rather than a bare `python`: current macOS and most Linux
     # distributions ship only `python3`, and a preview that silently fails is
@@ -58,8 +54,6 @@ def preview_command(track_dir):
             shlex.quote(PREVIEW_RENDERER),
             shlex.quote(track_dir),
             '{%d}' % TRACK_ID_FIELD,
-            # The pair fields: the playlist a line came from, and when the
-            # track was added to it. Neither is in the track file.
             '{%d}' % PLAYLIST_NAME_FIELD,
             '{%d}' % ADDED_AT_FIELD,
         )

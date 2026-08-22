@@ -72,8 +72,7 @@ def format_track_line(track, playlist):
                 track['id'],
                 playlist['id'],
                 _clean(playlist['name']),
-                # Absent from every entry cached before added_at was kept, and
-                # from any Spotify item that arrives without it.
+                # Absent from any Spotify item that arrives without it.
                 _clean(track.get('added_at') or ''),
             )
         )

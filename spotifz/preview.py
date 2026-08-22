@@ -7,9 +7,6 @@ Executed as a script and never imported, which is why there is not a single
 relative import below: importing the spotifz package reaches spotipy, and fzf
 reruns this command on every cursor move, so that import would be paid on every
 arrow key. Standard library only, one small file read.
-
-The pane is for recall -- placing a track you do not recognise -- so it shows
-what a person reads and none of the ids they cannot.
 """
 
 import datetime
@@ -20,7 +17,6 @@ import unicodedata
 
 INDENT = '  '
 LABEL_WIDTH = 12
-# Under this the label column costs more room than it earns, so values stack.
 NARROW_COLUMNS = 46
 DEFAULT_COLUMNS = 80
 ELLIPSIS = '…'
