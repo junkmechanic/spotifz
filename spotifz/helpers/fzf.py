@@ -7,7 +7,20 @@ from concurrent.futures import ThreadPoolExecutor
 
 # Imported from the module rather than the package: the format's owner is
 # sink.py, and spotifz.spotify may still be initialising when this is loaded.
-from ..spotify.sink import DISPLAY_FIELD, SEPARATOR, TRACK_ID_FIELD
+from ..spotify.sink import (
+    ADDED_AT_FIELD,
+    DISPLAY_FIELD,
+    PLAYLIST_NAME_FIELD,
+    SEPARATOR,
+    TRACK_ID_FIELD,
+)
+
+# Resolved from this file rather than from the package, and handed to the
+# interpreter as a path: the renderer must not be imported, which is what
+# `python -m spotifz.preview` would do.
+PREVIEW_RENDERER = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'preview.py'
+)
 
 
 class FzfNotFound(Exception):
@@ -31,15 +44,25 @@ def preview_command(track_dir):
     and the separator never reaches a shell. Verified against fzf 0.74.1:
     --with-nth hides the id fields from the display and from matching, but not
     from these placeholders.
+
+    One process, no pipe and no subshell: the renderer needs neither, and the
+    `( ... || cat )` this replaces was invalid in fish, which fzf would happily
+    run it under.
     """
-    # The quoted directory and fzf's single-quoted field concatenate in sh,
-    # bash and zsh, so a cache_path containing a space survives.
-    track_file = shlex.quote(track_dir + os.sep) + '{' + str(TRACK_ID_FIELD) + '}'
     # sys.executable rather than a bare `python`: current macOS and most Linux
     # distributions ship only `python3`, and a preview that silently fails is
     # invisible -- fzf shows an empty pane and reports nothing.
-    return '{} -m json.tool {} | (highlight -O ansi --syntax json || cat)'.format(
-        shlex.quote(sys.executable), track_file
+    return ' '.join(
+        (
+            shlex.quote(sys.executable),
+            shlex.quote(PREVIEW_RENDERER),
+            shlex.quote(track_dir),
+            '{%d}' % TRACK_ID_FIELD,
+            # The pair fields: the playlist a line came from, and when the
+            # track was added to it. Neither is in the track file.
+            '{%d}' % PLAYLIST_NAME_FIELD,
+            '{%d}' % ADDED_AT_FIELD,
+        )
     )
 
 

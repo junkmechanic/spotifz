@@ -45,12 +45,24 @@ def playlist_dir(config):
 
 @pytest.fixture
 def make_track():
-    def _make_track(name='Song', track_id='track-1', artists=('Artist',), album='Album'):
+    def _make_track(
+        name='Song',
+        track_id='track-1',
+        artists=('Artist',),
+        album='Album',
+        added_at=None,
+    ):
+        """
+        A track as Spotify returns it. added_at is off by default because the
+        API carries it on the playlist *item*, not on the track -- pass it to
+        build a track as it is cached inside a playlist file.
+        """
         artist_list = [{'name': artist} for artist in artists]
-        return {
+        track = {
             'id': track_id,
             'name': name,
             'track_number': 1,
+            'duration_ms': 215000,
             'uri': 'spotify:track:{}'.format(track_id),
             'artists': artist_list,
             'album': {
@@ -58,7 +70,12 @@ def make_track():
                 'name': album,
                 'uri': 'spotify:album:album-1',
                 'artists': artist_list,
+                'release_date': '1975-11-21',
+                'total_tracks': 12,
             },
         }
+        if added_at is not None:
+            track['added_at'] = added_at
+        return track
 
     return _make_track

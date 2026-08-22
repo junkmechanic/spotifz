@@ -3,6 +3,8 @@ import os
 import threading
 
 from spotifz.spotify.sink import (
+    ADDED_AT_FIELD,
+    PLAYLIST_NAME_FIELD,
     SEPARATOR,
     TRACK_ID_FIELD,
     format_track_line,
@@ -40,20 +42,52 @@ def make_fifo(config):
     return fifo_path
 
 
-def test_sinks_a_display_and_two_ids_per_track(config, playlist_dir, make_track):
+def test_sinks_a_display_two_ids_and_the_pair_data_per_track(
+    config, playlist_dir, make_track
+):
     write_playlist(
         playlist_dir,
         'pl-1',
         'Road Trip',
-        [make_track(name='Song One', track_id='track-1', artists=('A', 'B'))],
+        [
+            make_track(
+                name='Song One',
+                track_id='track-1',
+                artists=('A', 'B'),
+                added_at='2019-04-03T10:00:00Z',
+            )
+        ],
     )
 
     lines = drain(config, make_fifo(config))
 
-    assert lines == ['Song One :: Album :: A, B :: Road Trip\x1ftrack-1\x1fpl-1']
-    # The preview pane's `{2}` placeholder depends on the id being the second
-    # SEPARATOR-separated field.
-    assert lines[0].split(SEPARATOR)[TRACK_ID_FIELD - 1] == 'track-1'
+    assert lines == [
+        'Song One :: Album :: A, B :: Road Trip'
+        '\x1ftrack-1\x1fpl-1\x1fRoad Trip\x1f2019-04-03T10:00:00Z'
+    ]
+    # The preview pane's `{N}` placeholders depend on the field positions.
+    fields = lines[0].split(SEPARATOR)
+    assert fields[TRACK_ID_FIELD - 1] == 'track-1'
+    assert fields[PLAYLIST_NAME_FIELD - 1] == 'Road Trip'
+    assert fields[ADDED_AT_FIELD - 1] == '2019-04-03T10:00:00Z'
+
+
+def test_sinks_an_empty_added_at_for_a_track_cached_without_one(
+    config, playlist_dir, make_track
+):
+    """
+    Every entry cached before added_at was kept lacks it, and the line must
+    still hold five fields -- an empty one the preview omits, not a short line
+    that shifts every placeholder after it.
+    """
+    write_playlist(playlist_dir, 'pl-1', 'Road Trip', [make_track(track_id='track-1')])
+
+    lines = drain(config, make_fifo(config))
+    fields = lines[0].split(SEPARATOR)
+
+    assert len(fields) == 5
+    assert fields[ADDED_AT_FIELD - 1] == ''
+    assert fields[TRACK_ID_FIELD - 1] == 'track-1'
 
 
 def test_sinks_every_track_of_every_playlist(config, playlist_dir, make_track):
@@ -142,7 +176,7 @@ def test_names_containing_the_display_separator_do_not_shift_the_fields(
     lines = drain(config, make_fifo(config))
     fields = lines[0].split(SEPARATOR)
 
-    assert len(fields) == 3
+    assert len(fields) == 5
     # The positive index works now -- that is the whole point.
     assert fields[TRACK_ID_FIELD - 1] == 'track-1'
     # And the name survives intact in the display.
@@ -158,8 +192,23 @@ def test_format_track_line_removes_a_separator_from_a_name(make_track):
 
     line = format_track_line(track, {'id': 'pl-1', 'name': 'Mix'})
 
-    assert len(line.rstrip('\n').split(SEPARATOR)) == 3
+    assert len(line.rstrip('\n').split(SEPARATOR)) == 5
     assert parse_track_line(line.rstrip('\n')).track_id == 'track-1'
+
+
+def test_format_track_line_removes_a_separator_from_a_playlist_name(make_track):
+    """
+    Field 4 is a name straight from the cache, so it needs the same cleaning
+    the display field gets -- a separator inside it would shift added_at.
+    """
+    track = make_track(track_id='track-1', added_at='2019-04-03T10:00:00Z')
+
+    line = format_track_line(track, {'id': 'pl-1', 'name': 'Party\x1fMix'})
+
+    assert len(line.rstrip('\n').split(SEPARATOR)) == 5
+    ref = parse_track_line(line.rstrip('\n'))
+    assert ref.playlist_name == 'Party Mix'
+    assert ref.added_at == '2019-04-03T10:00:00Z'
 
 
 def test_format_track_line_removes_a_newline_from_a_name(make_track):
@@ -177,7 +226,12 @@ def test_parse_track_line_round_trips_what_format_wrote(make_track):
     Pins the writer and the reader to each other. Their drifting apart -- one
     joining on ' :: ', the other splitting on '::' -- is what item 7 was.
     """
-    track = make_track(name='Song :: One', track_id='track-1', artists=('A', 'B'))
+    track = make_track(
+        name='Song :: One',
+        track_id='track-1',
+        artists=('A', 'B'),
+        added_at='2019-04-03T10:00:00Z',
+    )
 
     ref = parse_track_line(
         format_track_line(track, {'id': 'pl-1', 'name': 'Road Trip'}).rstrip('\n')
@@ -185,6 +239,8 @@ def test_parse_track_line_round_trips_what_format_wrote(make_track):
 
     assert ref.track_id == 'track-1'
     assert ref.playlist_id == 'pl-1'
+    assert ref.playlist_name == 'Road Trip'
+    assert ref.added_at == '2019-04-03T10:00:00Z'
     # The full name survives on the line and in the display...
     assert ref.display.startswith('Song :: One')
     # ...but `name` is prompt decoration and stops at the display separator.
