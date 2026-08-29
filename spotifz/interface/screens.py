@@ -6,11 +6,48 @@ from .. import spotify
 from ..helpers import fzf
 
 
-def _redirect_to_devices(state, screen, *screen_args):
+class UnknownScreen(LookupError):
+    """
+    A screen returned a name nothing is registered under. Always a bug in this
+    repo -- a screen name is never user input and is never read from disk -- so
+    it is deliberately not caught in cli.main, which would swallow the
+    traceback that says which name. LookupError rather than KeyError, whose
+    __str__ reprs the message and would print it wrapped in quotes.
+    """
+
+
+# Name -> screen. Registration is an import side effect, which is why the
+# registry lives beside the screens rather than in a module of its own: a
+# separate module could be imported before them and answer lookups from a
+# legitimately empty dict.
+SCREENS = {}
+
+
+def screen(fn):
+    """
+    Marks a function as reachable as a destination from another screen. The
+    key is the function's own name, so the strings the screens already return
+    stay the contract and cannot drift from the definitions.
+    """
+    SCREENS[fn.__name__] = fn
+    return fn
+
+
+def get_screen(name):
+    try:
+        return SCREENS[name]
+    except KeyError:
+        raise UnknownScreen(
+            '{!r} is not a registered screen. Screens are the functions '
+            'decorated with @screen in {}.'.format(name, __name__)
+        ) from None
+
+
+def _redirect_to_devices(state, screen_name, *screen_args):
     """
     Send the user to device selection, recording where to return afterwards.
     """
-    state.pending_screen = (screen, screen_args)
+    state.pending_screen = (screen_name, screen_args)
     return ('list_devices',)
 
 
@@ -39,19 +76,31 @@ def _player_command(state, command, **kwargs):
     return True
 
 
+# Menu label -> the screen it dispatches to. Module-level rather than local so
+# a test can check every destination against the registry: a misspelled name
+# here would otherwise only surface as a failed lookup after fzf has exited.
+HOME_CHOICES = {
+    '[ 1 ] Search Library': 'search',
+    '[ 2 ] Current Playback': 'current_playback',
+    '[ 3 ] Devices': 'list_devices',
+    '[ 4 ] Play/Pause': 'resume',
+    '[ 5 ] Update Cache': 'update_cache',
+    '[ 6 ] Current Queue': 'current_queue',
+}
+
+TRACK_ACTIONS_CHOICES = {
+    'Play Track in Playlist': 'play_track_in_playlist',
+    'Play Track': 'play_track',
+    'Add to Queue': 'add_to_queue',
+}
+
+
+@screen
 def home_screen(_):
-    choices = {
-        '[ 1 ] Search Library': 'search',
-        '[ 2 ] Current Playback': 'current_playback',
-        '[ 3 ] Devices': 'list_devices',
-        '[ 4 ] Play/Pause': 'resume',
-        '[ 5 ] Update Cache': 'update_cache',
-        '[ 6 ] Current Queue': 'current_queue',
-    }
-    chosen = fzf.run_fzf(list(choices.keys()), prompt='[Home] > ')[0]
+    chosen = fzf.run_fzf(list(HOME_CHOICES.keys()), prompt='[Home] > ')[0]
     if chosen == '':
         return (None,)
-    return (choices[chosen],)
+    return (HOME_CHOICES[chosen],)
 
 
 def describe_playback(playback):
@@ -167,6 +216,7 @@ def describe_queue(queue):
     ]
 
 
+@screen
 def current_playback(state):
     sp = spotify.get_spotify_client(state.config)
     # Without `additional_types`, Spotify represents an unsupported item type
@@ -181,6 +231,7 @@ def current_playback(state):
     return ('home_screen',)
 
 
+@screen
 def current_queue(state):
     """
     Read-only: Spotify can append to the queue and skip one track at a time,
@@ -196,6 +247,7 @@ def current_queue(state):
     return ('home_screen',)
 
 
+@screen
 def list_devices(state):
     devices = sp_devices(state)
     chosen = fzf.run_fzf(list(devices.keys()), prompt='[Devices] > ')[0]
@@ -225,6 +277,7 @@ def sp_devices(state):
     return labelled
 
 
+@screen
 def device_actions(state, device_id):
     """
     For now, there is just one action
@@ -234,11 +287,12 @@ def device_actions(state, device_id):
     state.set_active_device(device_id)
     pending = state.take_pending_screen()
     if pending is not None:
-        screen, screen_args = pending
-        return (screen, *screen_args)
+        screen_name, screen_args = pending
+        return (screen_name, *screen_args)
     return ('home_screen',)
 
 
+@screen
 def resume(state):
     sp = spotify.get_spotify_client(state.config)
     playback = sp.current_playback()
@@ -256,11 +310,13 @@ def resume(state):
     return ('home_screen',)
 
 
+@screen
 def update_cache(state):
     spotify.update_cache(state.config)
     return ('home_screen',)
 
 
+@screen
 def search(state):
     chosen = fzf.run_fzf_sink(
         spotify.sink_all_tracks, state.config, prompt='[Search] > '
@@ -271,25 +327,21 @@ def search(state):
     return 'track_actions', spotify.parse_track_line(chosen)
 
 
+@screen
 def track_actions(_, track):
-    choices = {
-        'Play Track in Playlist': 'play_track_in_playlist',
-        'Play Track': 'play_track',
-        'Add to Queue': 'add_to_queue',
-    }
-
     track_name = track.name.replace("'", '')
     if len(track_name) > 20:
         prompt = f'[{track_name[:20]}...] > '
     else:
         prompt = f'[{track_name}] > '
 
-    chosen = fzf.run_fzf(list(choices.keys()), prompt=prompt)[0]
+    chosen = fzf.run_fzf(list(TRACK_ACTIONS_CHOICES.keys()), prompt=prompt)[0]
     if chosen == '':
         return ('search',)
-    return choices[chosen], track
+    return TRACK_ACTIONS_CHOICES[chosen], track
 
 
+@screen
 def play_track_in_playlist(state, track):
     sp = spotify.get_spotify_client(state.config)
     device_id = _resolve_device(state, sp.current_playback())
@@ -305,6 +357,7 @@ def play_track_in_playlist(state, track):
     return ('search',)
 
 
+@screen
 def play_track(state, track):
     sp = spotify.get_spotify_client(state.config)
     device_id = _resolve_device(state, sp.current_playback())
@@ -319,6 +372,7 @@ def play_track(state, track):
     return ('search',)
 
 
+@screen
 def add_to_queue(state, track):
     """
     Appends to the queue, so tracks can be stacked one after another without
