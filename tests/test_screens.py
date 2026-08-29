@@ -16,10 +16,14 @@ def track_ref(display, track_id='track-1', playlist_id='pl-1'):
 
 
 class FakeClient:
-    def __init__(self, playback=None, devices=(), start_error=None):
+    def __init__(
+        self, playback=None, devices=(), start_error=None, queue=None, queue_error=None
+    ):
         self._playback = playback
         self._devices = list(devices)
         self._start_error = start_error
+        self._queue = queue
+        self._queue_error = queue_error
         self.calls = []
 
     def current_playback(self, **kwargs):
@@ -30,6 +34,10 @@ class FakeClient:
         self.calls.append(('devices', {}))
         return {'devices': self._devices}
 
+    def queue(self):
+        self.calls.append(('queue', {}))
+        return self._queue
+
     def transfer_playback(self, device_id):
         self.calls.append(('transfer_playback', device_id))
 
@@ -37,6 +45,11 @@ class FakeClient:
         self.calls.append(('start_playback', kwargs))
         if self._start_error is not None:
             raise self._start_error
+
+    def add_to_queue(self, uri, device_id=None):
+        self.calls.append(('add_to_queue', {'uri': uri, 'device_id': device_id}))
+        if self._queue_error is not None:
+            raise self._queue_error
 
     def pause_playback(self):
         self.calls.append(('pause_playback', {}))
@@ -52,8 +65,10 @@ def client(monkeypatch):
     screens.spotify.get_spotify_client, so that is the only seam needed.
     """
 
-    def _install(playback=None, devices=(), start_error=None):
-        fake = FakeClient(playback, devices, start_error)
+    def _install(
+        playback=None, devices=(), start_error=None, queue=None, queue_error=None
+    ):
+        fake = FakeClient(playback, devices, start_error, queue, queue_error)
         monkeypatch.setattr(screens.spotify, 'get_spotify_client', lambda cfg: fake)
         return fake
 
@@ -192,6 +207,117 @@ def test_describe_playback_omits_a_missing_device():
     ]
 
 
+def queue_item(name='Song', album='Album', artists=('A', 'B')):
+    return {
+        'type': 'track',
+        'name': name,
+        'album': {'name': album},
+        'artists': [{'name': artist} for artist in artists],
+    }
+
+
+# --- describe_queue ----------------------------------------------------------
+
+
+def test_describe_queue_says_nothing_without_a_queue():
+    """No active device answers 204, which spotipy hands back as None."""
+    assert screens.describe_queue(None) == []
+
+
+def test_describe_queue_says_nothing_when_the_queue_is_empty():
+    assert screens.describe_queue({'currently_playing': None, 'queue': []}) == []
+
+
+def test_describe_queue_marks_what_is_playing_and_numbers_what_follows():
+    queue = {
+        'currently_playing': queue_item('Song A'),
+        'queue': [queue_item('Song B'), queue_item('Song C')],
+    }
+
+    assert screens.describe_queue(queue) == [
+        'Now  Song A :: Album :: A, B',
+        '  1  Song B :: Album :: A, B',
+        '  2  Song C :: Album :: A, B',
+    ]
+
+
+def test_describe_queue_numbers_from_one_when_nothing_is_playing():
+    queue = {'currently_playing': None, 'queue': [queue_item('Song B')]}
+
+    assert screens.describe_queue(queue) == ['1  Song B :: Album :: A, B']
+
+
+def test_describe_queue_lines_up_two_digit_positions():
+    """
+    The markers are a column, not a prefix: ragged numbers push every title to
+    a different indent and the pane stops being scannable.
+    """
+    queue = {'currently_playing': None, 'queue': [queue_item() for _ in range(10)]}
+
+    rows = screens.describe_queue(queue)
+
+    assert rows[0].startswith(' 1  Song')
+    assert rows[9].startswith('10  Song')
+
+
+def test_describe_queue_renders_an_episode():
+    queue = {
+        'currently_playing': None,
+        'queue': [
+            {
+                'type': 'episode',
+                'name': 'Episode One',
+                'show': {'name': 'The Show', 'publisher': 'A Publisher'},
+            }
+        ],
+    }
+
+    assert screens.describe_queue(queue) == ['1  Episode One :: The Show :: A Publisher']
+
+
+def test_describe_queue_recognises_an_episode_by_its_show_alone():
+    """Not every episode payload carries type == 'episode'."""
+    item = {'name': 'Episode One', 'show': {'name': 'The Show'}}
+
+    assert screens.describe_queue_item(item) == 'Episode One :: The Show'
+
+
+def test_describe_queue_omits_a_missing_album_and_artists():
+    item = {'type': 'track', 'name': 'Song', 'album': None, 'artists': []}
+
+    assert screens.describe_queue_item(item) == 'Song'
+
+
+def test_describe_queue_names_an_item_it_cannot_describe():
+    """The row still holds a numbered slot, so it may not trail off blank."""
+    assert screens.describe_queue_item({'type': 'track'}) == 'unknown item'
+
+
+def test_describe_queue_keeps_one_item_on_one_row():
+    """
+    run_fzf joins the candidates with newlines, so a name carrying one would
+    otherwise arrive as an extra row that selects nothing.
+    """
+    queue = {'currently_playing': None, 'queue': [queue_item('Song\nB')]}
+
+    rows = screens.describe_queue(queue)
+
+    assert rows == ['1  Song B :: Album :: A, B']
+
+
+def test_describe_queue_does_not_skip_a_number_for_an_unrenderable_entry():
+    """An advert in the queue arrives as a null entry."""
+    queue = {
+        'currently_playing': None,
+        'queue': [queue_item('Song A'), None, queue_item('Song C')],
+    }
+
+    rows = screens.describe_queue(queue)
+
+    assert [row.split('  ')[0] for row in rows] == ['1', '2']
+    assert rows[1].endswith('Song C :: Album :: A, B')
+
+
 # --- current_playback --------------------------------------------------------
 
 
@@ -222,6 +348,48 @@ def test_current_playback_shows_the_lines(state, client, fzf):
 
     assert screens.current_playback(state) == ('home_screen',)
     assert seen['items'][0][0] == 'Track : Song'
+
+
+# --- current_queue -----------------------------------------------------------
+
+
+def test_current_queue_returns_home_without_prompting(state, client, fzf):
+    client(queue=None)
+    seen = fzf()
+
+    assert screens.current_queue(state) == ('home_screen',)
+    assert seen['items'] == []
+
+
+def test_current_queue_shows_the_rows(state, client, fzf):
+    client(
+        queue={
+            'currently_playing': queue_item('Song A'),
+            'queue': [queue_item('Song B')],
+        }
+    )
+    seen = fzf('')
+
+    assert screens.current_queue(state) == ('home_screen',)
+    assert seen['items'][0] == [
+        'Now  Song A :: Album :: A, B',
+        '  1  Song B :: Album :: A, B',
+    ]
+    assert seen['prompts'] == ['[Queue] > ']
+
+
+def test_current_queue_returns_home_whatever_is_selected(state, client, fzf):
+    """There is nothing to act on, so a selection is not a route anywhere."""
+    client(queue={'currently_playing': queue_item('Song A'), 'queue': []})
+    fzf('Now  Song A :: Album :: A, B')
+
+    assert screens.current_queue(state) == ('home_screen',)
+
+
+def test_home_screen_reaches_the_queue(state, fzf):
+    fzf('[ 6 ] Current Queue')
+
+    assert screens.home_screen(state) == ('current_queue',)
 
 
 # --- devices -----------------------------------------------------------------
@@ -540,6 +708,60 @@ def test_resume_forgets_a_persisted_device_that_no_longer_exists(state, client):
     assert screens.resume(state) == ('list_devices',)
     assert state.active_device_id is None
     assert state.pending_screen == ('resume', ())
+
+
+# --- add_to_queue ------------------------------------------------------------
+
+
+def test_track_actions_offers_queueing(state, fzf):
+    fzf('Add to Queue')
+    track = track_ref('Song :: Album :: A :: Road Trip')
+
+    assert screens.track_actions(state, track) == ('add_to_queue', track)
+
+
+def test_add_to_queue_queues_on_the_device_that_is_playing(state, client):
+    fake = client(playback=track_playback())
+
+    assert screens.add_to_queue(state, track_ref('Song')) == ('search',)
+    assert fake.named('add_to_queue') == [
+        ('add_to_queue', {'uri': 'spotify:track:track-1', 'device_id': 'device-1'})
+    ]
+
+
+def test_add_to_queue_returns_to_the_search_so_tracks_can_be_stacked(state, client):
+    """Queueing an album a track at a time is the whole point of appending."""
+    fake = client(playback=None)
+    state.active_device_id = 'd1'
+
+    assert screens.add_to_queue(state, track_ref('Song')) == ('search',)
+    assert screens.add_to_queue(state, track_ref('Other', 'track-2')) == ('search',)
+    assert [call[1]['uri'] for call in fake.named('add_to_queue')] == [
+        'spotify:track:track-1',
+        'spotify:track:track-2',
+    ]
+
+
+def test_add_to_queue_redirects_when_there_is_no_device(state, client):
+    fake = client(playback=None)
+    track = track_ref('Song')
+
+    assert screens.add_to_queue(state, track) == ('list_devices',)
+    assert fake.named('add_to_queue') == []
+    assert state.pending_screen == ('add_to_queue', (track,))
+
+
+def test_add_to_queue_forgets_a_persisted_device_that_no_longer_exists(state, client):
+    """
+    Queueing against a dead device fails the same way starting playback does,
+    so it has to recover the same way rather than tracebacking out of the app.
+    """
+    client(playback=None, queue_error=device_gone())
+    state.set_active_device('d1')
+
+    assert screens.add_to_queue(state, track_ref('Song')) == ('list_devices',)
+    assert state.active_device_id is None
+    assert AppState.from_config(state.config).active_device_id is None
 
 
 # --- update_cache ------------------------------------------------------------
