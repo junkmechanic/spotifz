@@ -1,5 +1,4 @@
 import os
-import types
 
 import pytest
 
@@ -106,8 +105,8 @@ def test_update_data_paths_nests_everything_under_spotify_data():
 def test_launch_walks_screens_until_none(config, monkeypatch, no_fzf_check):
     """
     Pins the screen contract: every screen returns (next_screen_name, *args),
-    unpacked as `choice, *screen_args = fn(config, *screen_args)`. Any registry
-    replacing the getattr dispatch has to preserve this shape.
+    unpacked as `choice, *screen_args = fn(config, *screen_args)`, with the
+    name resolved through the registry.
     """
     seen = []
 
@@ -124,13 +123,13 @@ def test_launch_walks_screens_until_none(config, monkeypatch, no_fzf_check):
         return (None,)
 
     monkeypatch.setattr(
-        spotifz,
-        'screens',
-        types.SimpleNamespace(
-            home_screen=home_screen,
-            track_actions=track_actions,
-            play_track=play_track,
-        ),
+        spotifz.screens,
+        'SCREENS',
+        {
+            'home_screen': home_screen,
+            'track_actions': track_actions,
+            'play_track': play_track,
+        },
     )
 
     spotifz.launch(config)
@@ -147,9 +146,9 @@ def test_launch_stops_when_the_home_screen_returns_none(
 ):
     calls = []
     monkeypatch.setattr(
-        spotifz,
-        'screens',
-        types.SimpleNamespace(home_screen=lambda s: calls.append(s) or (None,)),
+        spotifz.screens,
+        'SCREENS',
+        {'home_screen': lambda s: calls.append(s) or (None,)},
     )
 
     spotifz.launch(config)
@@ -170,14 +169,58 @@ def test_launch_forwards_several_screen_args(config, monkeypatch, no_fzf_check):
         return (None,)
 
     monkeypatch.setattr(
-        spotifz,
-        'screens',
-        types.SimpleNamespace(home_screen=home_screen, device_actions=device_actions),
+        spotifz.screens,
+        'SCREENS',
+        {'home_screen': home_screen, 'device_actions': device_actions},
     )
 
     spotifz.launch(config)
 
     assert seen == [('device-1', 'extra')]
+
+
+def test_launch_resolves_the_entry_point_through_the_registry(
+    config, monkeypatch, no_fzf_check
+):
+    """
+    The first screen is looked up by name like every other hop, rather than
+    launch holding its own reference to screens.home_screen.
+    """
+    calls = []
+    monkeypatch.setattr(
+        spotifz.screens,
+        'SCREENS',
+        {'home_screen': lambda s: calls.append('registered') or (None,)},
+    )
+
+    spotifz.launch(config)
+
+    assert calls == ['registered']
+
+
+def test_launch_rejects_a_name_nothing_is_registered_under(
+    config, monkeypatch, no_fzf_check
+):
+    monkeypatch.setattr(
+        spotifz.screens, 'SCREENS', {'home_screen': lambda s: ('typo_screen',)}
+    )
+
+    with pytest.raises(spotifz.screens.UnknownScreen, match='typo_screen'):
+        spotifz.launch(config)
+
+
+@pytest.mark.parametrize('name', ['sp_devices', 'describe_playback', 'spotify'])
+def test_launch_rejects_a_module_name_that_is_not_a_screen(
+    name, config, monkeypatch, no_fzf_check
+):
+    """
+    The getattr dispatch this replaced reached every attribute of the screens
+    module -- helpers, constants and imports included.
+    """
+    monkeypatch.setitem(spotifz.screens.SCREENS, 'home_screen', lambda s: (name,))
+
+    with pytest.raises(spotifz.screens.UnknownScreen, match=name):
+        spotifz.launch(config)
 
 
 def test_launch_validates_before_checking_for_fzf(monkeypatch):
@@ -201,9 +244,9 @@ def test_launch_leaves_the_callers_config_alone(monkeypatch, no_fzf_check):
     cfg = valid_config()
     seen = []
     monkeypatch.setattr(
-        spotifz,
-        'screens',
-        types.SimpleNamespace(home_screen=lambda s: seen.append(s) or (None,)),
+        spotifz.screens,
+        'SCREENS',
+        {'home_screen': lambda s: seen.append(s) or (None,)},
     )
 
     spotifz.launch(cfg)

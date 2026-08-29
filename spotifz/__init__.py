@@ -57,7 +57,9 @@ def launch(config):
     state = prepare(config)
     ensure_fzf()
 
-    choice, *screen_args = screens.home_screen(state)
+    # The entry point resolves through the registry like every other hop, so
+    # home_screen is not a second, hard-coded way to name a screen.
+    choice, screen_args = 'home_screen', []
     while choice is not None:
-        upcoming_screen = getattr(screens, choice)
+        upcoming_screen = screens.get_screen(choice)
         choice, *screen_args = upcoming_screen(state, *screen_args)

@@ -1,3 +1,5 @@
+import inspect
+
 import pytest
 from spotipy import SpotifyException
 
@@ -106,6 +108,64 @@ def track_playback(name='Song', album='Album', artists=('A', 'B'), device='Lapto
             'artists': [{'name': artist} for artist in artists],
         },
     }
+
+
+# --- the registry ------------------------------------------------------------
+
+
+# Written out rather than derived, so adding a screen is a deliberate edit here
+# and never something that happens by accident.
+EXPECTED_SCREENS = {
+    'home_screen',
+    'search',
+    'current_playback',
+    'current_queue',
+    'list_devices',
+    'device_actions',
+    'resume',
+    'update_cache',
+    'track_actions',
+    'play_track',
+    'play_track_in_playlist',
+    'add_to_queue',
+}
+
+
+def test_the_registry_holds_exactly_the_screens():
+    assert set(screens.SCREENS) == EXPECTED_SCREENS
+
+
+def test_every_registered_screen_is_a_function_taking_the_state_first():
+    for name, fn in screens.SCREENS.items():
+        assert inspect.isfunction(fn), name
+        first = next(iter(inspect.signature(fn).parameters))
+        # An unused state parameter is spelled `_`, as in home_screen.
+        assert first in ('state', '_'), name
+
+
+def test_the_registry_keys_are_the_function_names():
+    """
+    What makes the strings the screens return safe to keep as the contract:
+    the key cannot drift from the definition it was taken from.
+    """
+    for name, fn in screens.SCREENS.items():
+        assert fn.__name__ == name
+
+
+@pytest.mark.parametrize('menu', [screens.HOME_CHOICES, screens.TRACK_ACTIONS_CHOICES])
+def test_every_menu_destination_is_a_registered_screen(menu):
+    for label, destination in menu.items():
+        assert destination in screens.SCREENS, label
+
+
+def test_a_helper_that_takes_the_state_is_not_a_screen():
+    """
+    sp_devices has a screen's signature and is called directly by list_devices.
+    The getattr dispatch could not tell the difference.
+    """
+    for helper in ('sp_devices', 'describe_playback', 'describe_queue'):
+        assert hasattr(screens, helper)
+        assert helper not in screens.SCREENS
 
 
 # --- describe_playback -------------------------------------------------------
