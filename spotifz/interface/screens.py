@@ -39,19 +39,30 @@ def _player_command(state, command, **kwargs):
     return True
 
 
+# Menu label -> the screen it dispatches to. Module-level rather than local so
+# a test can check every destination against the registry: a misspelled name
+# here would otherwise only surface as a failed lookup after fzf has exited.
+HOME_CHOICES = {
+    '[ 1 ] Search Library': 'search',
+    '[ 2 ] Current Playback': 'current_playback',
+    '[ 3 ] Devices': 'list_devices',
+    '[ 4 ] Play/Pause': 'resume',
+    '[ 5 ] Update Cache': 'update_cache',
+    '[ 6 ] Current Queue': 'current_queue',
+}
+
+TRACK_ACTIONS_CHOICES = {
+    'Play Track in Playlist': 'play_track_in_playlist',
+    'Play Track': 'play_track',
+    'Add to Queue': 'add_to_queue',
+}
+
+
 def home_screen(_):
-    choices = {
-        '[ 1 ] Search Library': 'search',
-        '[ 2 ] Current Playback': 'current_playback',
-        '[ 3 ] Devices': 'list_devices',
-        '[ 4 ] Play/Pause': 'resume',
-        '[ 5 ] Update Cache': 'update_cache',
-        '[ 6 ] Current Queue': 'current_queue',
-    }
-    chosen = fzf.run_fzf(list(choices.keys()), prompt='[Home] > ')[0]
+    chosen = fzf.run_fzf(list(HOME_CHOICES.keys()), prompt='[Home] > ')[0]
     if chosen == '':
         return (None,)
-    return (choices[chosen],)
+    return (HOME_CHOICES[chosen],)
 
 
 def describe_playback(playback):
@@ -272,22 +283,16 @@ def search(state):
 
 
 def track_actions(_, track):
-    choices = {
-        'Play Track in Playlist': 'play_track_in_playlist',
-        'Play Track': 'play_track',
-        'Add to Queue': 'add_to_queue',
-    }
-
     track_name = track.name.replace("'", '')
     if len(track_name) > 20:
         prompt = f'[{track_name[:20]}...] > '
     else:
         prompt = f'[{track_name}] > '
 
-    chosen = fzf.run_fzf(list(choices.keys()), prompt=prompt)[0]
+    chosen = fzf.run_fzf(list(TRACK_ACTIONS_CHOICES.keys()), prompt=prompt)[0]
     if chosen == '':
         return ('search',)
-    return choices[chosen], track
+    return TRACK_ACTIONS_CHOICES[chosen], track
 
 
 def play_track_in_playlist(state, track):
