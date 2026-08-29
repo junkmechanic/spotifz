@@ -16,11 +16,14 @@ def track_ref(display, track_id='track-1', playlist_id='pl-1'):
 
 
 class FakeClient:
-    def __init__(self, playback=None, devices=(), start_error=None, queue=None):
+    def __init__(
+        self, playback=None, devices=(), start_error=None, queue=None, queue_error=None
+    ):
         self._playback = playback
         self._devices = list(devices)
         self._start_error = start_error
         self._queue = queue
+        self._queue_error = queue_error
         self.calls = []
 
     def current_playback(self, **kwargs):
@@ -43,6 +46,11 @@ class FakeClient:
         if self._start_error is not None:
             raise self._start_error
 
+    def add_to_queue(self, uri, device_id=None):
+        self.calls.append(('add_to_queue', {'uri': uri, 'device_id': device_id}))
+        if self._queue_error is not None:
+            raise self._queue_error
+
     def pause_playback(self):
         self.calls.append(('pause_playback', {}))
 
@@ -57,8 +65,10 @@ def client(monkeypatch):
     screens.spotify.get_spotify_client, so that is the only seam needed.
     """
 
-    def _install(playback=None, devices=(), start_error=None, queue=None):
-        fake = FakeClient(playback, devices, start_error, queue)
+    def _install(
+        playback=None, devices=(), start_error=None, queue=None, queue_error=None
+    ):
+        fake = FakeClient(playback, devices, start_error, queue, queue_error)
         monkeypatch.setattr(screens.spotify, 'get_spotify_client', lambda cfg: fake)
         return fake
 
@@ -698,6 +708,60 @@ def test_resume_forgets_a_persisted_device_that_no_longer_exists(state, client):
     assert screens.resume(state) == ('list_devices',)
     assert state.active_device_id is None
     assert state.pending_screen == ('resume', ())
+
+
+# --- add_to_queue ------------------------------------------------------------
+
+
+def test_track_actions_offers_queueing(state, fzf):
+    fzf('Add to Queue')
+    track = track_ref('Song :: Album :: A :: Road Trip')
+
+    assert screens.track_actions(state, track) == ('add_to_queue', track)
+
+
+def test_add_to_queue_queues_on_the_device_that_is_playing(state, client):
+    fake = client(playback=track_playback())
+
+    assert screens.add_to_queue(state, track_ref('Song')) == ('search',)
+    assert fake.named('add_to_queue') == [
+        ('add_to_queue', {'uri': 'spotify:track:track-1', 'device_id': 'device-1'})
+    ]
+
+
+def test_add_to_queue_returns_to_the_search_so_tracks_can_be_stacked(state, client):
+    """Queueing an album a track at a time is the whole point of appending."""
+    fake = client(playback=None)
+    state.active_device_id = 'd1'
+
+    assert screens.add_to_queue(state, track_ref('Song')) == ('search',)
+    assert screens.add_to_queue(state, track_ref('Other', 'track-2')) == ('search',)
+    assert [call[1]['uri'] for call in fake.named('add_to_queue')] == [
+        'spotify:track:track-1',
+        'spotify:track:track-2',
+    ]
+
+
+def test_add_to_queue_redirects_when_there_is_no_device(state, client):
+    fake = client(playback=None)
+    track = track_ref('Song')
+
+    assert screens.add_to_queue(state, track) == ('list_devices',)
+    assert fake.named('add_to_queue') == []
+    assert state.pending_screen == ('add_to_queue', (track,))
+
+
+def test_add_to_queue_forgets_a_persisted_device_that_no_longer_exists(state, client):
+    """
+    Queueing against a dead device fails the same way starting playback does,
+    so it has to recover the same way rather than tracebacking out of the app.
+    """
+    client(playback=None, queue_error=device_gone())
+    state.set_active_device('d1')
+
+    assert screens.add_to_queue(state, track_ref('Song')) == ('list_devices',)
+    assert state.active_device_id is None
+    assert AppState.from_config(state.config).active_device_id is None
 
 
 # --- update_cache ------------------------------------------------------------

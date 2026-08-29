@@ -24,14 +24,15 @@ def _resolve_device(state, playback):
     return state.active_device_id
 
 
-def _start_playback(state, sp, **kwargs):
+def _player_command(state, command, **kwargs):
     """
-    A device that was alive last session may be gone this one, and Spotify
-    answers with a 404. Forget it, so the caller can send the user to pick
-    another -- the same path as never having chosen one.
+    Runs one command against the player. A device that was alive last session
+    may be gone this one, and Spotify answers with a 404. Forget it, so the
+    caller can send the user to pick another -- the same path as never having
+    chosen one.
     """
     try:
-        sp.start_playback(**kwargs)
+        command(**kwargs)
     except SpotifyException:
         state.forget_active_device()
         return False
@@ -243,8 +244,8 @@ def resume(state):
     playback = sp.current_playback()
     if playback is None:
         device_id = _resolve_device(state, playback)
-        started = device_id is not None and _start_playback(
-            state, sp, device_id=device_id
+        started = device_id is not None and _player_command(
+            state, sp.start_playback, device_id=device_id
         )
         if not started:
             return _redirect_to_devices(state, 'resume')
@@ -274,6 +275,7 @@ def track_actions(_, track):
     choices = {
         'Play Track in Playlist': 'play_track_in_playlist',
         'Play Track': 'play_track',
+        'Add to Queue': 'add_to_queue',
     }
 
     track_name = track.name.replace("'", '')
@@ -291,9 +293,9 @@ def track_actions(_, track):
 def play_track_in_playlist(state, track):
     sp = spotify.get_spotify_client(state.config)
     device_id = _resolve_device(state, sp.current_playback())
-    started = device_id is not None and _start_playback(
+    started = device_id is not None and _player_command(
         state,
-        sp,
+        sp.start_playback,
         device_id=device_id,
         context_uri=f'spotify:playlist:{track.playlist_id}',
         offset={'uri': f'spotify:track:{track.track_id}'},
@@ -306,9 +308,30 @@ def play_track_in_playlist(state, track):
 def play_track(state, track):
     sp = spotify.get_spotify_client(state.config)
     device_id = _resolve_device(state, sp.current_playback())
-    started = device_id is not None and _start_playback(
-        state, sp, device_id=device_id, uris=[f'spotify:track:{track.track_id}']
+    started = device_id is not None and _player_command(
+        state,
+        sp.start_playback,
+        device_id=device_id,
+        uris=[f'spotify:track:{track.track_id}'],
     )
     if not started:
         return _redirect_to_devices(state, 'play_track', track)
+    return ('search',)
+
+
+def add_to_queue(state, track):
+    """
+    Appends to the queue, so tracks can be stacked one after another without
+    leaving the results -- which is why this returns to the search.
+    """
+    sp = spotify.get_spotify_client(state.config)
+    device_id = _resolve_device(state, sp.current_playback())
+    queued = device_id is not None and _player_command(
+        state,
+        sp.add_to_queue,
+        uri=f'spotify:track:{track.track_id}',
+        device_id=device_id,
+    )
+    if not queued:
+        return _redirect_to_devices(state, 'add_to_queue', track)
     return ('search',)
