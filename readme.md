@@ -12,7 +12,7 @@ Home Screen:
 3. [x] Update Cache
 4. [x] Play/Pause
 5. [x] Search My Library
-6. [ ] Current Queue
+6. [x] Current Queue
 
 Selected Track:
 

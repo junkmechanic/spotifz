@@ -45,6 +45,7 @@ def home_screen(_):
         '[ 3 ] Devices': 'list_devices',
         '[ 4 ] Play/Pause': 'resume',
         '[ 5 ] Update Cache': 'update_cache',
+        '[ 6 ] Current Queue': 'current_queue',
     }
     chosen = fzf.run_fzf(list(choices.keys()), prompt='[Home] > ')[0]
     if chosen == '':
@@ -176,6 +177,21 @@ def current_playback(state):
         return ('home_screen',)
 
     fzf.run_fzf(lines, prompt='Playback > ')[0]
+    return ('home_screen',)
+
+
+def current_queue(state):
+    """
+    Read-only: Spotify can append to the queue and skip one track at a time,
+    but has no way to jump to a chosen position in it, so there is nothing
+    honest for a selection here to do.
+    """
+    sp = spotify.get_spotify_client(state.config)
+    rows = describe_queue(sp.queue())
+    if not rows:
+        return ('home_screen',)
+
+    fzf.run_fzf(rows, prompt='[Queue] > ')
     return ('home_screen',)
 
 

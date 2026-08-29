@@ -16,10 +16,11 @@ def track_ref(display, track_id='track-1', playlist_id='pl-1'):
 
 
 class FakeClient:
-    def __init__(self, playback=None, devices=(), start_error=None):
+    def __init__(self, playback=None, devices=(), start_error=None, queue=None):
         self._playback = playback
         self._devices = list(devices)
         self._start_error = start_error
+        self._queue = queue
         self.calls = []
 
     def current_playback(self, **kwargs):
@@ -29,6 +30,10 @@ class FakeClient:
     def devices(self):
         self.calls.append(('devices', {}))
         return {'devices': self._devices}
+
+    def queue(self):
+        self.calls.append(('queue', {}))
+        return self._queue
 
     def transfer_playback(self, device_id):
         self.calls.append(('transfer_playback', device_id))
@@ -52,8 +57,8 @@ def client(monkeypatch):
     screens.spotify.get_spotify_client, so that is the only seam needed.
     """
 
-    def _install(playback=None, devices=(), start_error=None):
-        fake = FakeClient(playback, devices, start_error)
+    def _install(playback=None, devices=(), start_error=None, queue=None):
+        fake = FakeClient(playback, devices, start_error, queue)
         monkeypatch.setattr(screens.spotify, 'get_spotify_client', lambda cfg: fake)
         return fake
 
@@ -333,6 +338,48 @@ def test_current_playback_shows_the_lines(state, client, fzf):
 
     assert screens.current_playback(state) == ('home_screen',)
     assert seen['items'][0][0] == 'Track : Song'
+
+
+# --- current_queue -----------------------------------------------------------
+
+
+def test_current_queue_returns_home_without_prompting(state, client, fzf):
+    client(queue=None)
+    seen = fzf()
+
+    assert screens.current_queue(state) == ('home_screen',)
+    assert seen['items'] == []
+
+
+def test_current_queue_shows_the_rows(state, client, fzf):
+    client(
+        queue={
+            'currently_playing': queue_item('Song A'),
+            'queue': [queue_item('Song B')],
+        }
+    )
+    seen = fzf('')
+
+    assert screens.current_queue(state) == ('home_screen',)
+    assert seen['items'][0] == [
+        'Now  Song A :: Album :: A, B',
+        '  1  Song B :: Album :: A, B',
+    ]
+    assert seen['prompts'] == ['[Queue] > ']
+
+
+def test_current_queue_returns_home_whatever_is_selected(state, client, fzf):
+    """There is nothing to act on, so a selection is not a route anywhere."""
+    client(queue={'currently_playing': queue_item('Song A'), 'queue': []})
+    fzf('Now  Song A :: Album :: A, B')
+
+    assert screens.current_queue(state) == ('home_screen',)
+
+
+def test_home_screen_reaches_the_queue(state, fzf):
+    fzf('[ 6 ] Current Queue')
+
+    assert screens.home_screen(state) == ('current_queue',)
 
 
 # --- devices -----------------------------------------------------------------
