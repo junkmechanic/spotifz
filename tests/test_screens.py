@@ -192,6 +192,117 @@ def test_describe_playback_omits_a_missing_device():
     ]
 
 
+def queue_item(name='Song', album='Album', artists=('A', 'B')):
+    return {
+        'type': 'track',
+        'name': name,
+        'album': {'name': album},
+        'artists': [{'name': artist} for artist in artists],
+    }
+
+
+# --- describe_queue ----------------------------------------------------------
+
+
+def test_describe_queue_says_nothing_without_a_queue():
+    """No active device answers 204, which spotipy hands back as None."""
+    assert screens.describe_queue(None) == []
+
+
+def test_describe_queue_says_nothing_when_the_queue_is_empty():
+    assert screens.describe_queue({'currently_playing': None, 'queue': []}) == []
+
+
+def test_describe_queue_marks_what_is_playing_and_numbers_what_follows():
+    queue = {
+        'currently_playing': queue_item('Song A'),
+        'queue': [queue_item('Song B'), queue_item('Song C')],
+    }
+
+    assert screens.describe_queue(queue) == [
+        'Now  Song A :: Album :: A, B',
+        '  1  Song B :: Album :: A, B',
+        '  2  Song C :: Album :: A, B',
+    ]
+
+
+def test_describe_queue_numbers_from_one_when_nothing_is_playing():
+    queue = {'currently_playing': None, 'queue': [queue_item('Song B')]}
+
+    assert screens.describe_queue(queue) == ['1  Song B :: Album :: A, B']
+
+
+def test_describe_queue_lines_up_two_digit_positions():
+    """
+    The markers are a column, not a prefix: ragged numbers push every title to
+    a different indent and the pane stops being scannable.
+    """
+    queue = {'currently_playing': None, 'queue': [queue_item() for _ in range(10)]}
+
+    rows = screens.describe_queue(queue)
+
+    assert rows[0].startswith(' 1  Song')
+    assert rows[9].startswith('10  Song')
+
+
+def test_describe_queue_renders_an_episode():
+    queue = {
+        'currently_playing': None,
+        'queue': [
+            {
+                'type': 'episode',
+                'name': 'Episode One',
+                'show': {'name': 'The Show', 'publisher': 'A Publisher'},
+            }
+        ],
+    }
+
+    assert screens.describe_queue(queue) == ['1  Episode One :: The Show :: A Publisher']
+
+
+def test_describe_queue_recognises_an_episode_by_its_show_alone():
+    """Not every episode payload carries type == 'episode'."""
+    item = {'name': 'Episode One', 'show': {'name': 'The Show'}}
+
+    assert screens.describe_queue_item(item) == 'Episode One :: The Show'
+
+
+def test_describe_queue_omits_a_missing_album_and_artists():
+    item = {'type': 'track', 'name': 'Song', 'album': None, 'artists': []}
+
+    assert screens.describe_queue_item(item) == 'Song'
+
+
+def test_describe_queue_names_an_item_it_cannot_describe():
+    """The row still holds a numbered slot, so it may not trail off blank."""
+    assert screens.describe_queue_item({'type': 'track'}) == 'unknown item'
+
+
+def test_describe_queue_keeps_one_item_on_one_row():
+    """
+    run_fzf joins the candidates with newlines, so a name carrying one would
+    otherwise arrive as an extra row that selects nothing.
+    """
+    queue = {'currently_playing': None, 'queue': [queue_item('Song\nB')]}
+
+    rows = screens.describe_queue(queue)
+
+    assert rows == ['1  Song B :: Album :: A, B']
+
+
+def test_describe_queue_does_not_skip_a_number_for_an_unrenderable_entry():
+    """An advert in the queue arrives as a null entry."""
+    queue = {
+        'currently_playing': None,
+        'queue': [queue_item('Song A'), None, queue_item('Song C')],
+    }
+
+    rows = screens.describe_queue(queue)
+
+    assert [row.split('  ')[0] for row in rows] == ['1', '2']
+    assert rows[1].endswith('Song C :: Album :: A, B')
+
+
 # --- current_playback --------------------------------------------------------
 
 

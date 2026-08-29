@@ -98,6 +98,73 @@ def describe_playback(playback):
     return lines
 
 
+# 'Now' is the widest marker the numbered rows line up against.
+QUEUE_NOW = 'Now'
+UNKNOWN_ITEM = 'unknown item'
+
+
+def _one_line(value):
+    """
+    run_fzf joins the candidates with newlines, so a name carrying one would
+    arrive as a row of its own.
+    """
+    return ' '.join(str(value if value is not None else '').split())
+
+
+def _artist_names(item):
+    names = (_one_line(artist.get('name')) for artist in item.get('artists') or [])
+    return ', '.join(name for name in names if name)
+
+
+def describe_queue_item(item):
+    """
+    One queued item, read in the same order as a search result: what it is,
+    what it came from, who made it.
+    """
+    if item.get('type') == 'episode' or item.get('show') is not None:
+        # Episodes carry show/publisher rather than album/artists.
+        show = item.get('show') or {}
+        parts = [item.get('name'), show.get('name'), show.get('publisher')]
+    else:
+        parts = [
+            item.get('name'),
+            (item.get('album') or {}).get('name'),
+            _artist_names(item),
+        ]
+    row = spotify.DISPLAY_SEPARATOR.join(part for part in map(_one_line, parts) if part)
+    # A row naming nothing at all still occupies a numbered slot, so it says so
+    # rather than trailing off after the number.
+    return row or UNKNOWN_ITEM
+
+
+def describe_queue(queue):
+    """
+    Builds the display rows for the queue: what is playing now, then what
+    follows it, in order. Returns an empty list when there is nothing to show.
+    """
+    if not queue:
+        # With no active device Spotify answers 204, which arrives as None:
+        # there is no queue, rather than an empty one.
+        return []
+
+    rows = []
+    now_playing = queue.get('currently_playing')
+    if now_playing is not None:
+        rows.append((QUEUE_NOW, now_playing))
+    # Numbered over the items that survive, so a marker is a position in the
+    # list on screen and the count never skips.
+    upcoming = [item for item in queue.get('queue') or [] if item is not None]
+    rows.extend((str(position), item) for position, item in enumerate(upcoming, 1))
+    if not rows:
+        return []
+
+    marker_width = max(len(marker) for marker, _ in rows)
+    return [
+        '{}  {}'.format(marker.rjust(marker_width), describe_queue_item(item))
+        for marker, item in rows
+    ]
+
+
 def current_playback(state):
     sp = spotify.get_spotify_client(state.config)
     # Without `additional_types`, Spotify represents an unsupported item type

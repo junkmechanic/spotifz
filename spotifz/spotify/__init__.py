@@ -2,6 +2,7 @@ from .client import get_spotify_client  # noqa: F401
 from .sink import (  # noqa: F401
     ADDED_AT_FIELD,
     DISPLAY_FIELD,
+    DISPLAY_SEPARATOR,
     PLAYLIST_ID_FIELD,
     PLAYLIST_NAME_FIELD,
     SEPARATOR,
