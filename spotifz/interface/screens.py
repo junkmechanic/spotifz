@@ -43,11 +43,11 @@ def get_screen(name):
         ) from None
 
 
-def _redirect_to_devices(state, screen, *screen_args):
+def _redirect_to_devices(state, screen_name, *screen_args):
     """
     Send the user to device selection, recording where to return afterwards.
     """
-    state.pending_screen = (screen, screen_args)
+    state.pending_screen = (screen_name, screen_args)
     return ('list_devices',)
 
 
@@ -287,8 +287,8 @@ def device_actions(state, device_id):
     state.set_active_device(device_id)
     pending = state.take_pending_screen()
     if pending is not None:
-        screen, screen_args = pending
-        return (screen, *screen_args)
+        screen_name, screen_args = pending
+        return (screen_name, *screen_args)
     return ('home_screen',)
 
 
