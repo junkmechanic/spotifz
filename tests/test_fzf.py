@@ -198,6 +198,35 @@ def test_run_fzf_passes_candidates_on_stdin(fake_fzf):
     assert selected == ['chosen line']
 
 
+def test_run_fzf_returns_a_row_exactly_as_it_offered_it(monkeypatch):
+    """
+    A caller that numbers its rows pads the narrow ones so they line up, and
+    then matches the selection back against what it showed. fzf returns the
+    line untouched, so anything trimmed here is a row its own caller can no
+    longer recognise.
+    """
+    row = ' 1  Song A :: Album :: Artist  (2h ago)'
+
+    def _run(cmd, **kwargs):
+        # What fzf actually writes: the chosen line and a newline.
+        return subprocess.CompletedProcess(cmd, 0, stdout=row + '\n')
+
+    monkeypatch.setattr(fzf.subprocess, 'run', _run)
+
+    assert run_fzf([row, '10  Song J :: Album :: Artist  (3d ago)']) == [row]
+
+
+def test_run_fzf_reads_an_abandoned_search_as_an_empty_selection(monkeypatch):
+    """Esc: fzf writes nothing, and every caller tests for ''."""
+
+    def _run(cmd, **kwargs):
+        return subprocess.CompletedProcess(cmd, 130, stdout='')
+
+    monkeypatch.setattr(fzf.subprocess, 'run', _run)
+
+    assert run_fzf(['a', 'b']) == ['']
+
+
 def test_run_fzf_defaults_the_prompt(fake_fzf):
     run_fzf(['a'])
 

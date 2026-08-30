@@ -784,6 +784,31 @@ def test_play_history_tells_two_plays_of_one_track_apart(state, client, fzf, fro
     assert entry.played_at == '2026-08-30T10:00:00Z'
 
 
+def test_play_history_recognises_a_row_that_was_padded_to_line_up(
+    state, client, fzf, frozen_now
+):
+    """
+    Spotify returns up to 50 plays, so the single-digit rows are padded to line
+    up under the two-digit ones. The padding is part of the row, and the row is
+    the key the entry is looked up by.
+    """
+    client(
+        history={
+            'items': [
+                history_item('Song {}'.format(n), track_id='track-{}'.format(n))
+                for n in range(1, 12)
+            ]
+        }
+    )
+    seen = fzf(' 1  Song 1 :: Album :: A, B  (2h ago)')
+
+    choice, entry = screens.play_history(state)
+
+    assert seen['items'][0][0].startswith(' 1  ')
+    assert choice == 'history_actions'
+    assert entry.track_id == 'track-1'
+
+
 def test_home_screen_reaches_the_play_history(state, fzf):
     fzf('[ 7 ] Play History')
 
