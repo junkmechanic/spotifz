@@ -41,5 +41,10 @@ quote-style = 'single'
 # sorting flake8 never had.
 select = ['E', 'F', 'I']
 
+[tool.ruff.lint.isort]
+# `builders` is tests/builders.py, which pytest puts on the path for the test
+# modules. Without this it sorts as a third-party package, next to pytest.
+known-first-party = ['builders']
+
 [tool.pytest.ini_options]
 testpaths = ['tests']

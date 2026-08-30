@@ -1,4 +1,11 @@
 from .client import get_spotify_client  # noqa: F401
+from .history import (  # noqa: F401
+    RESUMABLE_CONTEXTS,
+    HistoryEntry,
+    context_playlist_id,
+    history_entries,
+    history_playlist_ids,
+)
 from .sink import (  # noqa: F401
     ADDED_AT_FIELD,
     DISPLAY_FIELD,

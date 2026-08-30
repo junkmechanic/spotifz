@@ -1,6 +1,5 @@
 from collections import Counter
 from datetime import datetime, timezone
-from typing import NamedTuple, Optional
 
 from spotipy import SpotifyException
 
@@ -240,103 +239,6 @@ def describe_queue(queue):
     ]
 
 
-# Contexts a track can be resumed *inside*. Spotify accepts the `offset` that
-# starts a context at a chosen track only for these two, so an artist or a
-# Liked Songs context would start somewhere the user did not pick.
-RESUMABLE_CONTEXTS = ('playlist', 'album')
-PLAYLIST_URI_PREFIX = 'spotify:playlist:'
-
-
-class HistoryEntry(NamedTuple):
-    """
-    One play out of the history. `track_id` and `name` are spelled the way
-    TrackRef spells them, which is what lets play_track and add_to_queue take
-    an entry without knowing which list it was picked from.
-    """
-
-    display: str
-    track_id: str
-    context_uri: Optional[str]
-    context_type: Optional[str]
-    # What the context is called, where that is known without asking Spotify:
-    # a playlist of the user's own is named by the cache, an album by the track
-    # itself. Not the same thing as what the row shows -- see history_entries.
-    context_name: Optional[str]
-    played_at: str
-
-    @property
-    def name(self):
-        # Cosmetic, for the fzf prompt only, as on TrackRef.
-        return self.display.split(spotify.DISPLAY_SEPARATOR)[0]
-
-    @property
-    def is_resumable(self):
-        return self.context_uri is not None and self.context_type in RESUMABLE_CONTEXTS
-
-
-def context_playlist_id(context):
-    """
-    The playlist id out of a context, or None for a context that is not a
-    playlist -- an album, an artist, Liked Songs, or no context at all, which
-    is what a track played from a radio or from search arrives with.
-    """
-    uri = (context or {}).get('uri') or ''
-    if not uri.startswith(PLAYLIST_URI_PREFIX):
-        return None
-    return uri[len(PLAYLIST_URI_PREFIX) :] or None
-
-
-def history_entries(response, playlist_names=None):
-    """
-    Maps the recently-played response onto entries. `playlist_names` is handed
-    in rather than read here, so this stays a pure function of the response and
-    the caller owns the one cache read.
-    """
-    playlist_names = playlist_names or {}
-    entries = []
-    for item in (response or {}).get('items') or []:
-        track = (item or {}).get('track')
-        if not track:
-            continue
-        context = item.get('context') or None
-        context_type = (context or {}).get('type')
-        playlist_id = context_playlist_id(context)
-        if playlist_id:
-            context_name = playlist_names.get(playlist_id)
-        elif context_type == 'album':
-            context_name = _one_line((track.get('album') or {}).get('name')) or None
-        else:
-            context_name = None
-
-        # Only a playlist reaches the row. An album is already the row's second
-        # field, and an artist or Liked Songs adds nothing the row does not
-        # carry -- but both are still worth naming on the entry, for the action
-        # menu that offers to resume them.
-        display = describe_item(track)
-        if playlist_id and context_name:
-            display += spotify.DISPLAY_SEPARATOR + _one_line(context_name)
-        entries.append(
-            HistoryEntry(
-                display=display,
-                track_id=track.get('id'),
-                context_uri=(context or {}).get('uri'),
-                context_type=context_type,
-                context_name=context_name,
-                played_at=item.get('played_at') or '',
-            )
-        )
-    return entries
-
-
-def history_playlist_ids(response):
-    """The playlist ids a response refers to, for the caller's cache read."""
-    ids = (
-        context_playlist_id((item or {}).get('context'))
-        for item in (response or {}).get('items') or []
-    )
-    return [playlist_id for playlist_id in ids if playlist_id]
-
-
 # Spotify sends `2026-08-29T21:14:03.123Z`. datetime.fromisoformat only accepts
 # that trailing Z from 3.11, and this package supports 3.9, so the fixed prefix
 # is parsed instead -- which is indifferent to the Z and to how many fractional
@@ -388,6 +290,19 @@ def current_time():
     return datetime.now(timezone.utc)
 
 
+def describe_history_item(entry):
+    """
+    One play as a row. Only a playlist is named: an album is already the row's
+    second field, and an artist or Liked Songs adds nothing the row does not
+    carry -- though both are still named on the entry, for the action menu that
+    offers to resume them.
+    """
+    row = describe_item(entry.track)
+    if entry.context_type == 'playlist' and entry.context_name:
+        row += spotify.DISPLAY_SEPARATOR + _one_line(entry.context_name)
+    return row
+
+
 def describe_history(entries, now):
     """
     Builds the display rows for the play history, newest first as Spotify
@@ -401,7 +316,9 @@ def describe_history(entries, now):
     marker_width = len(str(len(entries)))
     rows = []
     for position, entry in enumerate(entries, 1):
-        row = '{}  {}'.format(str(position).rjust(marker_width), entry.display)
+        row = '{}  {}'.format(
+            str(position).rjust(marker_width), describe_history_item(entry)
+        )
         ago = played_ago(entry.played_at, now)
         if ago:
             row += '  ({})'.format(ago)
@@ -450,9 +367,9 @@ def play_history(state):
     sp = spotify.get_spotify_client(state.config)
     response = sp.current_user_recently_played()
     playlist_names = spotify.read_playlist_names(
-        state.config, history_playlist_ids(response)
+        state.config, spotify.history_playlist_ids(response)
     )
-    entries = history_entries(response, playlist_names)
+    entries = spotify.history_entries(response, playlist_names)
     rows = describe_history(entries, current_time())
     if not rows:
         return ('home_screen',)
@@ -555,7 +472,7 @@ def context_action_label(entry):
     if not entry.is_resumable:
         return None
     if entry.context_name:
-        return 'Play in {}'.format(entry.context_name)
+        return 'Play in {}'.format(_one_line(entry.context_name))
     return 'Play in {}'.format(entry.context_type.capitalize())
 
 

@@ -6,7 +6,9 @@ from datetime import datetime, timezone
 import pytest
 from spotipy import SpotifyException
 
+from builders import history_item, playlist_context
 from spotifz.interface import screens
+from spotifz.spotify import history
 from spotifz.spotify.sink import SEPARATOR, TrackRef
 from spotifz.state import AppState
 
@@ -418,178 +420,10 @@ def test_describe_queue_does_not_skip_a_number_for_an_unrenderable_entry():
     assert rows[1].endswith('Song C :: Album :: A, B')
 
 
-# --- the play history renderers ----------------------------------------------
+# --- the play history rows ---------------------------------------------------
 
 
 NOW = datetime(2026, 8, 30, 12, 0, 0, tzinfo=timezone.utc)
-
-
-def history_item(
-    name='Song',
-    track_id='track-1',
-    album='Album',
-    artists=('A', 'B'),
-    context=None,
-    played_at='2026-08-30T10:00:00.123Z',
-):
-    """One entry as `me/player/recently-played` returns it."""
-    return {
-        'track': {
-            'type': 'track',
-            'id': track_id,
-            'name': name,
-            'album': {'name': album},
-            'artists': [{'name': artist} for artist in artists],
-        },
-        'context': context,
-        'played_at': played_at,
-    }
-
-
-def playlist_context(playlist_id='pl-1'):
-    return {'type': 'playlist', 'uri': 'spotify:playlist:{}'.format(playlist_id)}
-
-
-def test_context_playlist_id_reads_a_playlist():
-    assert screens.context_playlist_id(playlist_context('pl-1')) == 'pl-1'
-
-
-@pytest.mark.parametrize(
-    'context',
-    [
-        None,
-        {},
-        {'type': 'album', 'uri': 'spotify:album:al-1'},
-        {'type': 'artist', 'uri': 'spotify:artist:ar-1'},
-        {'type': 'collection', 'uri': 'spotify:user:tester:collection'},
-        {'type': 'playlist', 'uri': 'spotify:playlist:'},
-        {'type': 'playlist'},
-    ],
-)
-def test_context_playlist_id_reads_nothing_else(context):
-    assert screens.context_playlist_id(context) is None
-
-
-def test_history_entries_says_nothing_without_a_response():
-    """No history at all comes back as a 204, which spotipy returns as None."""
-    assert screens.history_entries(None) == []
-    assert screens.history_entries({}) == []
-    assert screens.history_entries({'items': None}) == []
-
-
-def test_history_entries_reads_a_track():
-    entry = screens.history_entries({'items': [history_item()]})[0]
-
-    assert entry.display == 'Song :: Album :: A, B'
-    assert entry.track_id == 'track-1'
-    assert entry.played_at == '2026-08-30T10:00:00.123Z'
-    assert entry.context_uri is None
-    assert entry.context_name is None
-
-
-def test_history_entries_names_a_cached_playlist_on_the_row():
-    response = {'items': [history_item(context=playlist_context('pl-1'))]}
-
-    entry = screens.history_entries(response, {'pl-1': 'Road Trip'})[0]
-
-    assert entry.display == 'Song :: Album :: A, B :: Road Trip'
-    assert entry.context_name == 'Road Trip'
-    assert entry.context_uri == 'spotify:playlist:pl-1'
-    assert entry.context_type == 'playlist'
-
-
-def test_history_entries_leaves_an_uncached_playlist_unnamed():
-    """
-    Someone else's playlist, or one added since the last Update Cache. The row
-    keeps everything the API gave it and just gains no fourth field.
-    """
-    response = {'items': [history_item(context=playlist_context('pl-9'))]}
-
-    entry = screens.history_entries(response, {'pl-1': 'Road Trip'})[0]
-
-    assert entry.display == 'Song :: Album :: A, B'
-    assert entry.context_name is None
-    # Still resumable: the action does not need the name, only the uri.
-    assert entry.context_uri == 'spotify:playlist:pl-9'
-    assert entry.is_resumable
-
-
-def test_history_entries_keeps_an_album_context_off_the_row():
-    """
-    The album is already the row's second field, so repeating it would be
-    noise -- but the entry still knows the name, for the action that offers to
-    resume it.
-    """
-    context = {'type': 'album', 'uri': 'spotify:album:al-1'}
-    response = {'items': [history_item(album='Mezzanine', context=context)]}
-
-    entry = screens.history_entries(response)[0]
-
-    assert entry.display == 'Song :: Mezzanine :: A, B'
-    assert entry.context_name == 'Mezzanine'
-    assert entry.is_resumable
-
-
-def test_history_entries_keeps_a_playlist_name_on_one_row():
-    response = {'items': [history_item(context=playlist_context('pl-1'))]}
-
-    entry = screens.history_entries(response, {'pl-1': 'Road\nTrip'})[0]
-
-    assert entry.display == 'Song :: Album :: A, B :: Road Trip'
-
-
-def test_history_entries_skips_an_entry_without_a_track():
-    response = {'items': [history_item(), None, {'track': None}, history_item('Other')]}
-
-    assert [entry.name for entry in screens.history_entries(response)] == [
-        'Song',
-        'Other',
-    ]
-
-
-def test_an_entry_is_only_resumable_in_a_playlist_or_an_album():
-    """
-    Spotify accepts the offset that starts a context at the chosen track only
-    for those two; anywhere else it would start somewhere the user did not pick.
-    """
-    resumable = {
-        'playlist': 'spotify:playlist:pl-1',
-        'album': 'spotify:album:al-1',
-    }
-    for context_type, uri in resumable.items():
-        context = {'type': context_type, 'uri': uri}
-        assert screens.history_entries({'items': [history_item(context=context)]})[
-            0
-        ].is_resumable, context_type
-
-    not_resumable = {
-        'artist': 'spotify:artist:ar-1',
-        'collection': 'spotify:user:tester:collection',
-    }
-    for context_type, uri in not_resumable.items():
-        context = {'type': context_type, 'uri': uri}
-        assert not screens.history_entries({'items': [history_item(context=context)]})[
-            0
-        ].is_resumable, context_type
-
-    assert not screens.history_entries({'items': [history_item()]})[0].is_resumable
-
-
-def test_history_playlist_ids_lists_what_the_caller_has_to_look_up():
-    response = {
-        'items': [
-            history_item(context=playlist_context('pl-1')),
-            history_item(context={'type': 'album', 'uri': 'spotify:album:al-1'}),
-            history_item(context=None),
-            history_item(context=playlist_context('pl-2')),
-        ]
-    }
-
-    assert screens.history_playlist_ids(response) == ['pl-1', 'pl-2']
-
-
-def test_history_playlist_ids_says_nothing_without_a_response():
-    assert screens.history_playlist_ids(None) == []
 
 
 @pytest.mark.parametrize(
@@ -624,6 +458,41 @@ def test_played_ago_does_not_read_the_future():
 # --- describe_history --------------------------------------------------------
 
 
+def test_describe_history_item_reads_like_a_search_result():
+    entry = history.history_entries({'items': [history_item()]})[0]
+
+    assert screens.describe_history_item(entry) == 'Song :: Album :: A, B'
+
+
+def test_describe_history_item_names_a_playlist_it_knows():
+    entry = history.history_entries(
+        {'items': [history_item(context=playlist_context('pl-1'))]},
+        {'pl-1': 'Road Trip'},
+    )[0]
+
+    assert screens.describe_history_item(entry) == 'Song :: Album :: A, B :: Road Trip'
+
+
+def test_describe_history_item_leaves_an_album_context_off_the_row():
+    """The album is already the row's second field."""
+    context = {'type': 'album', 'uri': 'spotify:album:al-1'}
+    entry = history.history_entries(
+        {'items': [history_item(album='Mezzanine', context=context)]}
+    )[0]
+
+    assert entry.context_name == 'Mezzanine'
+    assert screens.describe_history_item(entry) == 'Song :: Mezzanine :: A, B'
+
+
+def test_describe_history_item_keeps_a_playlist_name_on_one_row():
+    entry = history.history_entries(
+        {'items': [history_item(context=playlist_context('pl-1'))]},
+        {'pl-1': 'Road\nTrip'},
+    )[0]
+
+    assert screens.describe_history_item(entry) == 'Song :: Album :: A, B :: Road Trip'
+
+
 def test_describe_history_says_nothing_without_entries():
     assert screens.describe_history([], NOW) == []
 
@@ -636,7 +505,7 @@ def test_describe_history_numbers_the_rows_newest_first():
         ]
     }
 
-    assert screens.describe_history(screens.history_entries(response), NOW) == [
+    assert screens.describe_history(history.history_entries(response), NOW) == [
         '1  Song A :: Album :: A, B  (2h ago)',
         '2  Song B :: Album :: A, B  (yesterday)',
     ]
@@ -645,7 +514,7 @@ def test_describe_history_numbers_the_rows_newest_first():
 def test_describe_history_lines_up_two_digit_positions():
     response = {'items': [history_item() for _ in range(10)]}
 
-    rows = screens.describe_history(screens.history_entries(response), NOW)
+    rows = screens.describe_history(history.history_entries(response), NOW)
 
     assert rows[0].startswith(' 1  Song')
     assert rows[9].startswith('10  Song')
@@ -658,7 +527,7 @@ def test_describe_history_keeps_two_plays_of_one_track_apart():
     """
     response = {'items': [history_item(), history_item()]}
 
-    rows = screens.describe_history(screens.history_entries(response), NOW)
+    rows = screens.describe_history(history.history_entries(response), NOW)
 
     assert len(set(rows)) == 2
 
@@ -666,7 +535,7 @@ def test_describe_history_keeps_two_plays_of_one_track_apart():
 def test_describe_history_drops_only_the_suffix_for_a_bad_timestamp():
     response = {'items': [history_item(played_at='whenever')]}
 
-    assert screens.describe_history(screens.history_entries(response), NOW) == [
+    assert screens.describe_history(history.history_entries(response), NOW) == [
         '1  Song :: Album :: A, B'
     ]
 
@@ -819,7 +688,7 @@ def test_home_screen_reaches_the_play_history(state, fzf):
 
 
 def history_entry(**kwargs):
-    return screens.history_entries({'items': [history_item(**kwargs)]})[0]
+    return history.history_entries({'items': [history_item(**kwargs)]})[0]
 
 
 def test_history_actions_offers_only_the_track_actions_without_a_context(state, fzf):
@@ -831,7 +700,7 @@ def test_history_actions_offers_only_the_track_actions_without_a_context(state, 
 
 
 def test_history_actions_offers_a_cached_playlist_by_name(state, fzf):
-    entry = screens.history_entries(
+    entry = history.history_entries(
         {'items': [history_item(context=playlist_context('pl-1'))]},
         {'pl-1': 'Road Trip'},
     )[0]
@@ -894,7 +763,7 @@ def test_history_actions_sends_an_action_back_to_the_history(state, fzf):
 
 
 def test_history_actions_routes_the_context_action(state, fzf):
-    entry = screens.history_entries(
+    entry = history.history_entries(
         {'items': [history_item(context=playlist_context('pl-1'))]},
         {'pl-1': 'Road Trip'},
     )[0]
