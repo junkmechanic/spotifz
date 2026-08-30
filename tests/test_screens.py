@@ -200,6 +200,15 @@ def test_every_track_action_accepts_the_screen_it_was_entered_from():
             assert params[-1] == 'origin', label
 
 
+def test_the_home_menu_is_numbered_in_the_order_it_is_shown():
+    """
+    fzf lists the labels in the order they are declared, so a number that does
+    not match a label's position is a menu that counts wrong on screen.
+    """
+    for position, label in enumerate(screens.HOME_CHOICES, 1):
+        assert label.startswith('[ {} ] '.format(position)), label
+
+
 def test_a_helper_that_takes_the_state_is_not_a_screen():
     """
     sp_devices has a screen's signature and is called directly by list_devices.
@@ -679,7 +688,7 @@ def test_play_history_recognises_a_row_that_was_padded_to_line_up(
 
 
 def test_home_screen_reaches_the_play_history(state, fzf):
-    fzf('[ 7 ] Play History')
+    fzf('[ 6 ] Play History')
 
     assert screens.home_screen(state) == ('play_history',)
 
@@ -883,7 +892,7 @@ def test_current_queue_returns_home_whatever_is_selected(state, client, fzf):
 
 
 def test_home_screen_reaches_the_queue(state, fzf):
-    fzf('[ 6 ] Current Queue')
+    fzf('[ 5 ] Current Queue')
 
     assert screens.home_screen(state) == ('current_queue',)
 

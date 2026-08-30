@@ -7,13 +7,13 @@ in the terminal
 
 Home Screen:
 
-1. [x] Devices
+1. [x] Search Library
 2. [x] Current Playback
-3. [x] Update Cache
+3. [x] Devices
 4. [x] Play/Pause
-5. [x] Search My Library
-6. [x] Current Queue
-7. [x] Play History
+5. [x] Current Queue
+6. [x] Play History
+7. [x] Update Cache
 
 Selected Track:
 
