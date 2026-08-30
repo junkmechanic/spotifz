@@ -1,4 +1,6 @@
 import inspect
+import json
+import os
 from datetime import datetime, timezone
 
 import pytest
@@ -20,13 +22,20 @@ def track_ref(display, track_id='track-1', playlist_id='pl-1'):
 
 class FakeClient:
     def __init__(
-        self, playback=None, devices=(), start_error=None, queue=None, queue_error=None
+        self,
+        playback=None,
+        devices=(),
+        start_error=None,
+        queue=None,
+        queue_error=None,
+        history=None,
     ):
         self._playback = playback
         self._devices = list(devices)
         self._start_error = start_error
         self._queue = queue
         self._queue_error = queue_error
+        self._history = history
         self.calls = []
 
     def current_playback(self, **kwargs):
@@ -40,6 +49,10 @@ class FakeClient:
     def queue(self):
         self.calls.append(('queue', {}))
         return self._queue
+
+    def current_user_recently_played(self, **kwargs):
+        self.calls.append(('current_user_recently_played', kwargs))
+        return self._history
 
     def transfer_playback(self, device_id):
         self.calls.append(('transfer_playback', device_id))
@@ -69,9 +82,14 @@ def client(monkeypatch):
     """
 
     def _install(
-        playback=None, devices=(), start_error=None, queue=None, queue_error=None
+        playback=None,
+        devices=(),
+        start_error=None,
+        queue=None,
+        queue_error=None,
+        history=None,
     ):
-        fake = FakeClient(playback, devices, start_error, queue, queue_error)
+        fake = FakeClient(playback, devices, start_error, queue, queue_error, history)
         monkeypatch.setattr(screens.spotify, 'get_spotify_client', lambda cfg: fake)
         return fake
 
@@ -121,6 +139,8 @@ EXPECTED_SCREENS = {
     'search',
     'current_playback',
     'current_queue',
+    'play_history',
+    'history_actions',
     'list_devices',
     'device_actions',
     'resume',
@@ -153,7 +173,14 @@ def test_the_registry_keys_are_the_function_names():
         assert fn.__name__ == name
 
 
-@pytest.mark.parametrize('menu', [screens.HOME_CHOICES, screens.TRACK_ACTIONS_CHOICES])
+@pytest.mark.parametrize(
+    'menu',
+    [
+        screens.HOME_CHOICES,
+        screens.TRACK_ACTIONS_CHOICES,
+        screens.HISTORY_ACTIONS_CHOICES,
+    ],
+)
 def test_every_menu_destination_is_a_registered_screen(menu):
     for label, destination in menu.items():
         assert destination in screens.SCREENS, label
@@ -164,9 +191,11 @@ def test_every_track_action_accepts_the_screen_it_was_entered_from():
     An action that dropped `origin` would compile and then strand the user on
     whichever screen its own return value happened to name.
     """
-    for label, destination in screens.TRACK_ACTIONS_CHOICES.items():
-        params = list(inspect.signature(screens.SCREENS[destination]).parameters)
-        assert params[-1] == 'origin', label
+    menus = (screens.TRACK_ACTIONS_CHOICES, screens.HISTORY_ACTIONS_CHOICES)
+    for menu in menus:
+        for label, destination in menu.items():
+            params = list(inspect.signature(screens.SCREENS[destination]).parameters)
+            assert params[-1] == 'origin', label
 
 
 def test_a_helper_that_takes_the_state_is_not_a_screen():
@@ -635,6 +664,255 @@ def test_describe_history_drops_only_the_suffix_for_a_bad_timestamp():
     assert screens.describe_history(screens.history_entries(response), NOW) == [
         '1  Song :: Album :: A, B'
     ]
+
+
+# --- play_history ------------------------------------------------------------
+
+
+@pytest.fixture
+def frozen_now(monkeypatch):
+    """Holds the clock the rows' relative times are read against."""
+    monkeypatch.setattr(screens, 'current_time', lambda: NOW)
+    return NOW
+
+
+def test_play_history_returns_home_without_prompting(state, client, fzf):
+    client(history=None)
+    seen = fzf()
+
+    assert screens.play_history(state) == ('home_screen',)
+    assert seen['items'] == []
+
+
+def test_play_history_shows_the_rows(state, client, fzf, frozen_now):
+    client(
+        history={
+            'items': [
+                history_item('Song A', played_at='2026-08-30T11:59:40Z'),
+                history_item('Song B', played_at='2026-08-30T11:55:00Z'),
+            ]
+        }
+    )
+    seen = fzf('')
+
+    assert screens.play_history(state) == ('home_screen',)
+    assert seen['items'][0] == [
+        '1  Song A :: Album :: A, B  (just now)',
+        '2  Song B :: Album :: A, B  (5m ago)',
+    ]
+    assert seen['prompts'] == ['[History] > ']
+
+
+def test_play_history_names_a_playlist_it_has_cached(
+    state, client, fzf, playlist_dir, frozen_now
+):
+    """
+    The whole point of reading the cache: a track played from one of your own
+    playlists says which one.
+    """
+    with open(os.path.join(playlist_dir, 'pl-1'), 'w') as ofile:
+        json.dump({'id': 'pl-1', 'name': 'Road Trip'}, ofile)
+    client(history={'items': [history_item(context=playlist_context('pl-1'))]})
+    seen = fzf('')
+
+    screens.play_history(state)
+
+    assert seen['items'][0] == ['1  Song :: Album :: A, B :: Road Trip  (2h ago)']
+
+
+def test_play_history_leaves_a_playlist_it_has_not_cached_unnamed(
+    state, client, fzf, playlist_dir, frozen_now
+):
+    client(history={'items': [history_item(context=playlist_context('pl-9'))]})
+    seen = fzf('')
+
+    screens.play_history(state)
+
+    assert seen['items'][0] == ['1  Song :: Album :: A, B  (2h ago)']
+
+
+def test_play_history_hands_the_chosen_row_to_the_actions(state, client, fzf, frozen_now):
+    client(history={'items': [history_item('Song A'), history_item('Song B')]})
+    fzf('2  Song B :: Album :: A, B  (2h ago)')
+
+    choice, entry = screens.play_history(state)
+
+    assert choice == 'history_actions'
+    assert entry.name == 'Song B'
+
+
+def test_play_history_returns_home_when_nothing_was_selected(state, client, fzf):
+    client(history={'items': [history_item()]})
+    fzf('')
+
+    assert screens.play_history(state) == ('home_screen',)
+
+
+def test_play_history_returns_home_for_a_row_it_does_not_recognise(state, client, fzf):
+    """
+    fzf can only return a line it was given, so this is a bug guard rather than
+    a path a user can take -- and it must not be a KeyError out of cli.main.
+    """
+    client(history={'items': [history_item()]})
+    fzf('something else entirely')
+
+    assert screens.play_history(state) == ('home_screen',)
+
+
+def test_play_history_tells_two_plays_of_one_track_apart(state, client, fzf, frozen_now):
+    """
+    The rows are the keys the entries are looked up by, so a repeat has to be
+    reachable rather than shadowed by the first play of the same track.
+    """
+    client(
+        history={
+            'items': [
+                history_item(played_at='2026-08-30T11:00:00Z'),
+                history_item(played_at='2026-08-30T10:00:00Z'),
+            ]
+        }
+    )
+    fzf('2  Song :: Album :: A, B  (2h ago)')
+
+    _, entry = screens.play_history(state)
+
+    assert entry.played_at == '2026-08-30T10:00:00Z'
+
+
+def test_home_screen_reaches_the_play_history(state, fzf):
+    fzf('[ 7 ] Play History')
+
+    assert screens.home_screen(state) == ('play_history',)
+
+
+# --- history_actions ---------------------------------------------------------
+
+
+def history_entry(**kwargs):
+    return screens.history_entries({'items': [history_item(**kwargs)]})[0]
+
+
+def test_history_actions_offers_only_the_track_actions_without_a_context(state, fzf):
+    seen = fzf('')
+
+    screens.history_actions(state, history_entry())
+
+    assert seen['items'][0] == ['Play Track', 'Add to Queue']
+
+
+def test_history_actions_offers_a_cached_playlist_by_name(state, fzf):
+    entry = screens.history_entries(
+        {'items': [history_item(context=playlist_context('pl-1'))]},
+        {'pl-1': 'Road Trip'},
+    )[0]
+    seen = fzf('')
+
+    screens.history_actions(state, entry)
+
+    assert seen['items'][0] == ['Play Track', 'Add to Queue', 'Play in Road Trip']
+
+
+def test_history_actions_offers_an_album_by_the_name_on_the_row(state, fzf):
+    """
+    An album context is not named on the row, because the album is already the
+    row's second field -- which is where the label reads it from.
+    """
+    entry = history_entry(
+        album='Mezzanine', context={'type': 'album', 'uri': 'spotify:album:al-1'}
+    )
+    seen = fzf('')
+
+    screens.history_actions(state, entry)
+
+    assert seen['items'][0][2] == 'Play in Mezzanine'
+
+
+def test_history_actions_offers_an_uncached_playlist_without_a_name(state, fzf):
+    """The action needs the uri, not the name, so it is still worth offering."""
+    entry = history_entry(context=playlist_context('pl-9'))
+    seen = fzf('')
+
+    screens.history_actions(state, entry)
+
+    assert seen['items'][0][2] == 'Play in Playlist'
+
+
+@pytest.mark.parametrize(
+    'context',
+    [
+        {'type': 'artist', 'uri': 'spotify:artist:ar-1'},
+        {'type': 'collection', 'uri': 'spotify:user:tester:collection'},
+    ],
+)
+def test_history_actions_does_not_offer_a_context_it_cannot_start(state, fzf, context):
+    seen = fzf('')
+
+    screens.history_actions(state, history_entry(context=context))
+
+    assert seen['items'][0] == ['Play Track', 'Add to Queue']
+
+
+def test_history_actions_sends_an_action_back_to_the_history(state, fzf):
+    entry = history_entry()
+    fzf('Add to Queue')
+
+    assert screens.history_actions(state, entry) == (
+        'add_to_queue',
+        entry,
+        'play_history',
+    )
+
+
+def test_history_actions_routes_the_context_action(state, fzf):
+    entry = screens.history_entries(
+        {'items': [history_item(context=playlist_context('pl-1'))]},
+        {'pl-1': 'Road Trip'},
+    )[0]
+    fzf('Play in Road Trip')
+
+    assert screens.history_actions(state, entry) == (
+        'play_track_in_context',
+        entry,
+        'play_history',
+    )
+
+
+def test_history_actions_returns_to_the_history_on_an_empty_selection(state, fzf):
+    fzf('')
+
+    assert screens.history_actions(state, history_entry()) == ('play_history',)
+
+
+def test_history_actions_truncates_a_long_prompt(state, fzf):
+    seen = fzf('Play Track')
+
+    screens.history_actions(state, history_entry(name='A' * 40))
+
+    assert seen['prompts'][0] == '[{}...] > '.format('A' * 20)
+
+
+def test_a_history_entry_plays_through_the_track_screens_unchanged(state, client):
+    """
+    play_track and add_to_queue read only track_id, which is why an entry can
+    be handed to them without their knowing it is not a TrackRef.
+    """
+    fake = client(playback=track_playback())
+    entry = history_entry(track_id='track-9')
+
+    assert screens.play_track(state, entry, 'play_history') == ('play_history',)
+    assert fake.named('start_playback')[0][1]['uris'] == ['spotify:track:track-9']
+
+
+def test_a_history_entry_resumes_the_context_it_was_played_in(state, client):
+    fake = client(playback=track_playback())
+    entry = history_entry(context=playlist_context('pl-1'))
+
+    assert screens.play_track_in_context(state, entry, 'play_history') == (
+        'play_history',
+    )
+    kwargs = fake.named('start_playback')[0][1]
+    assert kwargs['context_uri'] == 'spotify:playlist:pl-1'
+    assert kwargs['offset'] == {'uri': 'spotify:track:track-1'}
 
 
 # --- current_playback --------------------------------------------------------

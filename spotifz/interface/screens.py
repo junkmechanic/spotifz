@@ -88,10 +88,20 @@ HOME_CHOICES = {
     '[ 4 ] Play/Pause': 'resume',
     '[ 5 ] Update Cache': 'update_cache',
     '[ 6 ] Current Queue': 'current_queue',
+    '[ 7 ] Play History': 'play_history',
 }
 
 TRACK_ACTIONS_CHOICES = {
     'Play Track in Playlist': 'play_track_in_context',
+    'Play Track': 'play_track',
+    'Add to Queue': 'add_to_queue',
+}
+
+# What a track picked out of the play history can do without knowing anything
+# about where it was played. Resuming the context it came from is offered on
+# top of these, and only when there is one worth resuming, so it cannot be a
+# fixed entry here.
+HISTORY_ACTIONS_CHOICES = {
     'Play Track': 'play_track',
     'Add to Queue': 'add_to_queue',
 }
@@ -348,6 +358,15 @@ def played_ago(played_at, now):
     return '{:.0f}d ago'.format(days)
 
 
+def current_time():
+    """
+    Exists to be replaceable. The relative times on the history rows are read
+    against this, and a test that cannot hold it still would be asserting
+    against the wall clock.
+    """
+    return datetime.now(timezone.utc)
+
+
 def describe_history(entries, now):
     """
     Builds the display rows for the play history, newest first as Spotify
@@ -398,6 +417,32 @@ def current_queue(state):
 
     fzf.run_fzf(rows, prompt='[Queue] > ')
     return ('home_screen',)
+
+
+@screen
+def play_history(state):
+    """
+    What Spotify recorded as recently played -- tracks only, newest first, one
+    row per play rather than per track, since playing something three times is
+    the interesting part of a history.
+    """
+    sp = spotify.get_spotify_client(state.config)
+    response = sp.current_user_recently_played()
+    playlist_names = spotify.read_playlist_names(
+        state.config, history_playlist_ids(response)
+    )
+    entries = history_entries(response, playlist_names)
+    rows = describe_history(entries, current_time())
+    if not rows:
+        return ('home_screen',)
+
+    chosen = fzf.run_fzf(rows, prompt='[History] > ')[0]
+    # Row -> entry, the way list_devices maps a label back to a device. The
+    # position each row is numbered with is what makes the keys unique.
+    entry = dict(zip(rows, entries)).get(chosen)
+    if entry is None:
+        return ('home_screen',)
+    return 'history_actions', entry
 
 
 @screen
@@ -480,6 +525,54 @@ def search(state):
     return 'track_actions', spotify.parse_track_line(chosen), 'search'
 
 
+def context_action_label(entry):
+    """
+    The label for resuming what a track was played inside, or None when there
+    is nothing to resume. The name is whatever is already known -- the playlist
+    named off the cache when the rows were built, the album off the track --
+    and a playlist that was never cached still offers the action, just without
+    a name for it.
+    """
+    if not entry.is_resumable:
+        return None
+    name = entry.context_name
+    if not name and entry.context_type == 'album':
+        # The album is the row's second field, so it is on the display already.
+        parts = entry.display.split(spotify.DISPLAY_SEPARATOR)
+        name = parts[1] if len(parts) > 1 else None
+    if name:
+        return 'Play in {}'.format(name)
+    return 'Play in {}'.format(entry.context_type.capitalize())
+
+
+@screen
+def history_actions(_, entry):
+    """
+    Everything here is already on the entry, so opening this menu costs no
+    request -- which is what naming the context when the rows were built buys.
+    """
+    choices = dict(HISTORY_ACTIONS_CHOICES)
+    context_label = context_action_label(entry)
+    if context_label is not None:
+        choices[context_label] = 'play_track_in_context'
+
+    chosen = fzf.run_fzf(list(choices.keys()), prompt=_track_prompt(entry.name))[0]
+    if chosen == '':
+        return ('play_history',)
+    return choices[chosen], entry, 'play_history'
+
+
+def _track_prompt(track_name):
+    """
+    The prompt for a menu about one track. Long names are truncated so the
+    prompt does not push the choices off the line.
+    """
+    track_name = track_name.replace("'", '')
+    if len(track_name) > 20:
+        return f'[{track_name[:20]}...] > '
+    return f'[{track_name}] > '
+
+
 @screen
 def track_actions(_, track, origin):
     """
@@ -488,13 +581,9 @@ def track_actions(_, track, origin):
     out at each call site rather than defaulted, so a new caller has to say
     where it came from instead of silently inheriting the search.
     """
-    track_name = track.name.replace("'", '')
-    if len(track_name) > 20:
-        prompt = f'[{track_name[:20]}...] > '
-    else:
-        prompt = f'[{track_name}] > '
-
-    chosen = fzf.run_fzf(list(TRACK_ACTIONS_CHOICES.keys()), prompt=prompt)[0]
+    chosen = fzf.run_fzf(
+        list(TRACK_ACTIONS_CHOICES.keys()), prompt=_track_prompt(track.name)
+    )[0]
     if chosen == '':
         return (origin,)
     return TRACK_ACTIONS_CHOICES[chosen], track, origin
