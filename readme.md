@@ -13,6 +13,7 @@ Home Screen:
 4. [x] Play/Pause
 5. [x] Search My Library
 6. [x] Current Queue
+7. [x] Play History
 
 Selected Track:
 
@@ -20,11 +21,11 @@ Selected Track:
 2. [x] Play track
 3. [x] Add to Queue
 
-## TODO
+Selected Play:
 
-- current album in playlist
-- play history
-- current playback to lead to searching by artist, album etc as the input query to fzf
+1. [x] Play track
+2. [x] Add to Queue
+3. [x] Play in the playlist or album it was played in
 
 # Installation
 

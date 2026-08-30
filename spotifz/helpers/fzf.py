@@ -72,7 +72,7 @@ def run_fzf(search_items, prompt=None):
         text=True,
         stdout=subprocess.PIPE,
     )
-    selected = fuzzy_result.stdout.strip().split('\n')
+    selected = fuzzy_result.stdout.strip('\n').split('\n')
     return selected
 
 

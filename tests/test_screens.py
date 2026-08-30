@@ -1,9 +1,14 @@
 import inspect
+import json
+import os
+from datetime import datetime, timezone
 
 import pytest
 from spotipy import SpotifyException
 
+from builders import history_item, playlist_context
 from spotifz.interface import screens
+from spotifz.spotify import history
 from spotifz.spotify.sink import SEPARATOR, TrackRef
 from spotifz.state import AppState
 
@@ -19,13 +24,20 @@ def track_ref(display, track_id='track-1', playlist_id='pl-1'):
 
 class FakeClient:
     def __init__(
-        self, playback=None, devices=(), start_error=None, queue=None, queue_error=None
+        self,
+        playback=None,
+        devices=(),
+        start_error=None,
+        queue=None,
+        queue_error=None,
+        history=None,
     ):
         self._playback = playback
         self._devices = list(devices)
         self._start_error = start_error
         self._queue = queue
         self._queue_error = queue_error
+        self._history = history
         self.calls = []
 
     def current_playback(self, **kwargs):
@@ -39,6 +51,10 @@ class FakeClient:
     def queue(self):
         self.calls.append(('queue', {}))
         return self._queue
+
+    def current_user_recently_played(self, **kwargs):
+        self.calls.append(('current_user_recently_played', kwargs))
+        return self._history
 
     def transfer_playback(self, device_id):
         self.calls.append(('transfer_playback', device_id))
@@ -68,9 +84,14 @@ def client(monkeypatch):
     """
 
     def _install(
-        playback=None, devices=(), start_error=None, queue=None, queue_error=None
+        playback=None,
+        devices=(),
+        start_error=None,
+        queue=None,
+        queue_error=None,
+        history=None,
     ):
-        fake = FakeClient(playback, devices, start_error, queue, queue_error)
+        fake = FakeClient(playback, devices, start_error, queue, queue_error, history)
         monkeypatch.setattr(screens.spotify, 'get_spotify_client', lambda cfg: fake)
         return fake
 
@@ -120,13 +141,15 @@ EXPECTED_SCREENS = {
     'search',
     'current_playback',
     'current_queue',
+    'play_history',
+    'history_actions',
     'list_devices',
     'device_actions',
     'resume',
     'update_cache',
     'track_actions',
     'play_track',
-    'play_track_in_playlist',
+    'play_track_in_context',
     'add_to_queue',
 }
 
@@ -152,10 +175,29 @@ def test_the_registry_keys_are_the_function_names():
         assert fn.__name__ == name
 
 
-@pytest.mark.parametrize('menu', [screens.HOME_CHOICES, screens.TRACK_ACTIONS_CHOICES])
+@pytest.mark.parametrize(
+    'menu',
+    [
+        screens.HOME_CHOICES,
+        screens.TRACK_ACTIONS_CHOICES,
+        screens.HISTORY_ACTIONS_CHOICES,
+    ],
+)
 def test_every_menu_destination_is_a_registered_screen(menu):
     for label, destination in menu.items():
         assert destination in screens.SCREENS, label
+
+
+def test_every_track_action_accepts_the_screen_it_was_entered_from():
+    """
+    An action that dropped `origin` would compile and then strand the user on
+    whichever screen its own return value happened to name.
+    """
+    menus = (screens.TRACK_ACTIONS_CHOICES, screens.HISTORY_ACTIONS_CHOICES)
+    for menu in menus:
+        for label, destination in menu.items():
+            params = list(inspect.signature(screens.SCREENS[destination]).parameters)
+            assert params[-1] == 'origin', label
 
 
 def test_a_helper_that_takes_the_state_is_not_a_screen():
@@ -335,22 +377,22 @@ def test_describe_queue_renders_an_episode():
     assert screens.describe_queue(queue) == ['1  Episode One :: The Show :: A Publisher']
 
 
-def test_describe_queue_recognises_an_episode_by_its_show_alone():
+def test_describe_item_recognises_an_episode_by_its_show_alone():
     """Not every episode payload carries type == 'episode'."""
     item = {'name': 'Episode One', 'show': {'name': 'The Show'}}
 
-    assert screens.describe_queue_item(item) == 'Episode One :: The Show'
+    assert screens.describe_item(item) == 'Episode One :: The Show'
 
 
-def test_describe_queue_omits_a_missing_album_and_artists():
+def test_describe_item_omits_a_missing_album_and_artists():
     item = {'type': 'track', 'name': 'Song', 'album': None, 'artists': []}
 
-    assert screens.describe_queue_item(item) == 'Song'
+    assert screens.describe_item(item) == 'Song'
 
 
-def test_describe_queue_names_an_item_it_cannot_describe():
+def test_describe_item_names_an_item_it_cannot_describe():
     """The row still holds a numbered slot, so it may not trail off blank."""
-    assert screens.describe_queue_item({'type': 'track'}) == 'unknown item'
+    assert screens.describe_item({'type': 'track'}) == 'unknown item'
 
 
 def test_describe_queue_keeps_one_item_on_one_row():
@@ -376,6 +418,400 @@ def test_describe_queue_does_not_skip_a_number_for_an_unrenderable_entry():
 
     assert [row.split('  ')[0] for row in rows] == ['1', '2']
     assert rows[1].endswith('Song C :: Album :: A, B')
+
+
+# --- the play history rows ---------------------------------------------------
+
+
+NOW = datetime(2026, 8, 30, 12, 0, 0, tzinfo=timezone.utc)
+
+
+@pytest.mark.parametrize(
+    'played_at,expected',
+    [
+        ('2026-08-30T11:59:40Z', 'just now'),
+        ('2026-08-30T11:55:00Z', '5m ago'),
+        ('2026-08-30T10:00:00Z', '2h ago'),
+        ('2026-08-29T12:00:00Z', 'yesterday'),
+        ('2026-08-27T12:00:00Z', '3d ago'),
+        # The fractional seconds Spotify actually sends, and a Z-less form.
+        ('2026-08-30T10:00:00.123Z', '2h ago'),
+        ('2026-08-30T10:00:00.123456Z', '2h ago'),
+        ('2026-08-30T10:00:00', '2h ago'),
+    ],
+)
+def test_played_ago_reads_compactly(played_at, expected):
+    assert screens.played_ago(played_at, NOW) == expected
+
+
+@pytest.mark.parametrize('played_at', ['', None, 'yesterday', '2026-08-30'])
+def test_played_ago_says_nothing_it_cannot_work_out(played_at):
+    """A row loses its suffix rather than the screen losing the row."""
+    assert screens.played_ago(played_at, NOW) == ''
+
+
+def test_played_ago_does_not_read_the_future():
+    """The clock here and Spotify's need not agree to the second."""
+    assert screens.played_ago('2026-08-30T12:00:30Z', NOW) == 'just now'
+
+
+# --- describe_history --------------------------------------------------------
+
+
+def test_describe_history_item_reads_like_a_search_result():
+    entry = history.history_entries({'items': [history_item()]})[0]
+
+    assert screens.describe_history_item(entry) == 'Song :: Album :: A, B'
+
+
+def test_describe_history_item_names_a_playlist_it_knows():
+    entry = history.history_entries(
+        {'items': [history_item(context=playlist_context('pl-1'))]},
+        {'pl-1': 'Road Trip'},
+    )[0]
+
+    assert screens.describe_history_item(entry) == 'Song :: Album :: A, B :: Road Trip'
+
+
+def test_describe_history_item_leaves_an_album_context_off_the_row():
+    """The album is already the row's second field."""
+    context = {'type': 'album', 'uri': 'spotify:album:al-1'}
+    entry = history.history_entries(
+        {'items': [history_item(album='Mezzanine', context=context)]}
+    )[0]
+
+    assert entry.context_name == 'Mezzanine'
+    assert screens.describe_history_item(entry) == 'Song :: Mezzanine :: A, B'
+
+
+def test_describe_history_item_keeps_a_playlist_name_on_one_row():
+    entry = history.history_entries(
+        {'items': [history_item(context=playlist_context('pl-1'))]},
+        {'pl-1': 'Road\nTrip'},
+    )[0]
+
+    assert screens.describe_history_item(entry) == 'Song :: Album :: A, B :: Road Trip'
+
+
+def test_describe_history_says_nothing_without_entries():
+    assert screens.describe_history([], NOW) == []
+
+
+def test_describe_history_numbers_the_rows_newest_first():
+    response = {
+        'items': [
+            history_item('Song A', played_at='2026-08-30T10:00:00Z'),
+            history_item('Song B', played_at='2026-08-29T12:00:00Z'),
+        ]
+    }
+
+    assert screens.describe_history(history.history_entries(response), NOW) == [
+        '1  Song A :: Album :: A, B  (2h ago)',
+        '2  Song B :: Album :: A, B  (yesterday)',
+    ]
+
+
+def test_describe_history_lines_up_two_digit_positions():
+    response = {'items': [history_item() for _ in range(10)]}
+
+    rows = screens.describe_history(history.history_entries(response), NOW)
+
+    assert rows[0].startswith(' 1  Song')
+    assert rows[9].startswith('10  Song')
+
+
+def test_describe_history_keeps_two_plays_of_one_track_apart():
+    """
+    The row is the key the screen maps back to an entry, so a repeat has to
+    render as its own row rather than collapsing onto the first.
+    """
+    response = {'items': [history_item(), history_item()]}
+
+    rows = screens.describe_history(history.history_entries(response), NOW)
+
+    assert len(set(rows)) == 2
+
+
+def test_describe_history_drops_only_the_suffix_for_a_bad_timestamp():
+    response = {'items': [history_item(played_at='whenever')]}
+
+    assert screens.describe_history(history.history_entries(response), NOW) == [
+        '1  Song :: Album :: A, B'
+    ]
+
+
+# --- play_history ------------------------------------------------------------
+
+
+@pytest.fixture
+def frozen_now(monkeypatch):
+    """Holds the clock the rows' relative times are read against."""
+    monkeypatch.setattr(screens, 'current_time', lambda: NOW)
+    return NOW
+
+
+def test_play_history_returns_home_without_prompting(state, client, fzf):
+    client(history=None)
+    seen = fzf()
+
+    assert screens.play_history(state) == ('home_screen',)
+    assert seen['items'] == []
+
+
+def test_play_history_shows_the_rows(state, client, fzf, frozen_now):
+    client(
+        history={
+            'items': [
+                history_item('Song A', played_at='2026-08-30T11:59:40Z'),
+                history_item('Song B', played_at='2026-08-30T11:55:00Z'),
+            ]
+        }
+    )
+    seen = fzf('')
+
+    assert screens.play_history(state) == ('home_screen',)
+    assert seen['items'][0] == [
+        '1  Song A :: Album :: A, B  (just now)',
+        '2  Song B :: Album :: A, B  (5m ago)',
+    ]
+    assert seen['prompts'] == ['[History] > ']
+
+
+def test_play_history_names_a_playlist_it_has_cached(
+    state, client, fzf, playlist_dir, frozen_now
+):
+    """
+    The whole point of reading the cache: a track played from one of your own
+    playlists says which one.
+    """
+    with open(os.path.join(playlist_dir, 'pl-1'), 'w') as ofile:
+        json.dump({'id': 'pl-1', 'name': 'Road Trip'}, ofile)
+    client(history={'items': [history_item(context=playlist_context('pl-1'))]})
+    seen = fzf('')
+
+    screens.play_history(state)
+
+    assert seen['items'][0] == ['1  Song :: Album :: A, B :: Road Trip  (2h ago)']
+
+
+def test_play_history_leaves_a_playlist_it_has_not_cached_unnamed(
+    state, client, fzf, playlist_dir, frozen_now
+):
+    client(history={'items': [history_item(context=playlist_context('pl-9'))]})
+    seen = fzf('')
+
+    screens.play_history(state)
+
+    assert seen['items'][0] == ['1  Song :: Album :: A, B  (2h ago)']
+
+
+def test_play_history_hands_the_chosen_row_to_the_actions(state, client, fzf, frozen_now):
+    client(history={'items': [history_item('Song A'), history_item('Song B')]})
+    fzf('2  Song B :: Album :: A, B  (2h ago)')
+
+    choice, entry = screens.play_history(state)
+
+    assert choice == 'history_actions'
+    assert entry.name == 'Song B'
+
+
+def test_play_history_returns_home_when_nothing_was_selected(state, client, fzf):
+    client(history={'items': [history_item()]})
+    fzf('')
+
+    assert screens.play_history(state) == ('home_screen',)
+
+
+def test_play_history_returns_home_for_a_row_it_does_not_recognise(state, client, fzf):
+    """
+    fzf can only return a line it was given, so this is a bug guard rather than
+    a path a user can take -- and it must not be a KeyError out of cli.main.
+    """
+    client(history={'items': [history_item()]})
+    fzf('something else entirely')
+
+    assert screens.play_history(state) == ('home_screen',)
+
+
+def test_play_history_tells_two_plays_of_one_track_apart(state, client, fzf, frozen_now):
+    """
+    The rows are the keys the entries are looked up by, so a repeat has to be
+    reachable rather than shadowed by the first play of the same track.
+    """
+    client(
+        history={
+            'items': [
+                history_item(played_at='2026-08-30T11:00:00Z'),
+                history_item(played_at='2026-08-30T10:00:00Z'),
+            ]
+        }
+    )
+    fzf('2  Song :: Album :: A, B  (2h ago)')
+
+    _, entry = screens.play_history(state)
+
+    assert entry.played_at == '2026-08-30T10:00:00Z'
+
+
+def test_play_history_recognises_a_row_that_was_padded_to_line_up(
+    state, client, fzf, frozen_now
+):
+    """
+    Spotify returns up to 50 plays, so the single-digit rows are padded to line
+    up under the two-digit ones. The padding is part of the row, and the row is
+    the key the entry is looked up by.
+    """
+    client(
+        history={
+            'items': [
+                history_item('Song {}'.format(n), track_id='track-{}'.format(n))
+                for n in range(1, 12)
+            ]
+        }
+    )
+    seen = fzf(' 1  Song 1 :: Album :: A, B  (2h ago)')
+
+    choice, entry = screens.play_history(state)
+
+    assert seen['items'][0][0].startswith(' 1  ')
+    assert choice == 'history_actions'
+    assert entry.track_id == 'track-1'
+
+
+def test_home_screen_reaches_the_play_history(state, fzf):
+    fzf('[ 7 ] Play History')
+
+    assert screens.home_screen(state) == ('play_history',)
+
+
+# --- history_actions ---------------------------------------------------------
+
+
+def history_entry(**kwargs):
+    return history.history_entries({'items': [history_item(**kwargs)]})[0]
+
+
+def test_history_actions_offers_only_the_track_actions_without_a_context(state, fzf):
+    seen = fzf('')
+
+    screens.history_actions(state, history_entry())
+
+    assert seen['items'][0] == ['Play Track', 'Add to Queue']
+
+
+def test_history_actions_offers_a_cached_playlist_by_name(state, fzf):
+    entry = history.history_entries(
+        {'items': [history_item(context=playlist_context('pl-1'))]},
+        {'pl-1': 'Road Trip'},
+    )[0]
+    seen = fzf('')
+
+    screens.history_actions(state, entry)
+
+    assert seen['items'][0] == ['Play Track', 'Add to Queue', 'Play in Road Trip']
+
+
+def test_history_actions_offers_an_album_by_the_name_on_the_row(state, fzf):
+    """
+    An album context is not named on the row, because the album is already the
+    row's second field -- which is where the label reads it from.
+    """
+    entry = history_entry(
+        album='Mezzanine', context={'type': 'album', 'uri': 'spotify:album:al-1'}
+    )
+    seen = fzf('')
+
+    screens.history_actions(state, entry)
+
+    assert seen['items'][0][2] == 'Play in Mezzanine'
+
+
+def test_history_actions_offers_an_uncached_playlist_without_a_name(state, fzf):
+    """The action needs the uri, not the name, so it is still worth offering."""
+    entry = history_entry(context=playlist_context('pl-9'))
+    seen = fzf('')
+
+    screens.history_actions(state, entry)
+
+    assert seen['items'][0][2] == 'Play in Playlist'
+
+
+@pytest.mark.parametrize(
+    'context',
+    [
+        {'type': 'artist', 'uri': 'spotify:artist:ar-1'},
+        {'type': 'collection', 'uri': 'spotify:user:tester:collection'},
+    ],
+)
+def test_history_actions_does_not_offer_a_context_it_cannot_start(state, fzf, context):
+    seen = fzf('')
+
+    screens.history_actions(state, history_entry(context=context))
+
+    assert seen['items'][0] == ['Play Track', 'Add to Queue']
+
+
+def test_history_actions_sends_an_action_back_to_the_history(state, fzf):
+    entry = history_entry()
+    fzf('Add to Queue')
+
+    assert screens.history_actions(state, entry) == (
+        'add_to_queue',
+        entry,
+        'play_history',
+    )
+
+
+def test_history_actions_routes_the_context_action(state, fzf):
+    entry = history.history_entries(
+        {'items': [history_item(context=playlist_context('pl-1'))]},
+        {'pl-1': 'Road Trip'},
+    )[0]
+    fzf('Play in Road Trip')
+
+    assert screens.history_actions(state, entry) == (
+        'play_track_in_context',
+        entry,
+        'play_history',
+    )
+
+
+def test_history_actions_returns_to_the_history_on_an_empty_selection(state, fzf):
+    fzf('')
+
+    assert screens.history_actions(state, history_entry()) == ('play_history',)
+
+
+def test_history_actions_truncates_a_long_prompt(state, fzf):
+    seen = fzf('Play Track')
+
+    screens.history_actions(state, history_entry(name='A' * 40))
+
+    assert seen['prompts'][0] == '[{}...] > '.format('A' * 20)
+
+
+def test_a_history_entry_plays_through_the_track_screens_unchanged(state, client):
+    """
+    play_track and add_to_queue read only track_id, which is why an entry can
+    be handed to them without their knowing it is not a TrackRef.
+    """
+    fake = client(playback=track_playback())
+    entry = history_entry(track_id='track-9')
+
+    assert screens.play_track(state, entry, 'play_history') == ('play_history',)
+    assert fake.named('start_playback')[0][1]['uris'] == ['spotify:track:track-9']
+
+
+def test_a_history_entry_resumes_the_context_it_was_played_in(state, client):
+    fake = client(playback=track_playback())
+    entry = history_entry(context=playlist_context('pl-1'))
+
+    assert screens.play_track_in_context(state, entry, 'play_history') == (
+        'play_history',
+    )
+    kwargs = fake.named('start_playback')[0][1]
+    assert kwargs['context_uri'] == 'spotify:playlist:pl-1'
+    assert kwargs['offset'] == {'uri': 'spotify:track:track-1'}
 
 
 # --- current_playback --------------------------------------------------------
@@ -606,9 +1042,10 @@ def test_search_parses_the_selected_line_into_a_track_ref(state, fzf_sink):
         )
     )
 
-    choice, track = screens.search(state)
+    choice, track, origin = screens.search(state)
 
     assert choice == 'track_actions'
+    assert origin == 'search'
     assert track.track_id == 'track-1'
     assert track.playlist_id == 'pl-1'
     assert track.display == 'Song :: Album :: A, B :: Road Trip'
@@ -626,19 +1063,41 @@ def test_track_actions_forwards_the_track_props(state, fzf):
     fzf('Play Track')
     track = track_ref('Song :: Album :: A :: Road Trip')
 
-    assert screens.track_actions(state, track) == ('play_track', track)
+    assert screens.track_actions(state, track, 'search') == (
+        'play_track',
+        track,
+        'search',
+    )
 
 
-def test_track_actions_returns_to_search_on_an_empty_selection(state, fzf):
-    fzf('')
+def test_track_actions_returns_to_where_the_track_was_picked(state, fzf):
+    """
+    Esc goes back to the list the user was reading, whichever one that was --
+    the search here, the play history for a track picked there.
+    """
+    fzf('', '')
 
-    assert screens.track_actions(state, track_ref('Song')) == ('search',)
+    assert screens.track_actions(state, track_ref('Song'), 'search') == ('search',)
+    assert screens.track_actions(state, track_ref('Song'), 'play_history') == (
+        'play_history',
+    )
+
+
+def test_track_actions_carries_the_origin_to_the_action(state, fzf):
+    fzf('Add to Queue')
+    track = track_ref('Song')
+
+    assert screens.track_actions(state, track, 'play_history') == (
+        'add_to_queue',
+        track,
+        'play_history',
+    )
 
 
 def test_track_actions_truncates_a_long_prompt(state, fzf):
     seen = fzf('Play Track')
 
-    screens.track_actions(state, track_ref('A' * 40))
+    screens.track_actions(state, track_ref('A' * 40), 'search')
 
     assert seen['prompts'][0] == '[{}...] > '.format('A' * 20)
 
@@ -652,7 +1111,7 @@ def test_play_track_starts_the_track_on_the_active_device(state, client):
 
     track = track_ref('Song')
 
-    assert screens.play_track(state, track) == ('search',)
+    assert screens.play_track(state, track, 'search') == ('search',)
     assert fake.named('start_playback') == [
         ('start_playback', {'device_id': 'd1', 'uris': ['spotify:track:track-1']})
     ]
@@ -663,14 +1122,14 @@ def test_play_track_redirects_when_there_is_no_device(state, client):
 
     track = track_ref('Song')
 
-    assert screens.play_track(state, track) == ('list_devices',)
+    assert screens.play_track(state, track, 'search') == ('list_devices',)
     assert fake.named('start_playback') == []
 
 
-def test_play_track_in_playlist_uses_the_playlist_as_context(state, client):
+def test_play_track_in_context_uses_the_playlist_as_context(state, client):
     fake = client(playback=track_playback())
 
-    result = screens.play_track_in_playlist(state, track_ref('Song'))
+    result = screens.play_track_in_context(state, track_ref('Song'), 'search')
 
     assert result == ('search',)
     assert fake.named('start_playback') == [
@@ -685,7 +1144,7 @@ def test_play_track_in_playlist_uses_the_playlist_as_context(state, client):
     ]
 
 
-def test_play_track_in_playlist_is_unaffected_by_the_separator_in_a_name(state, client):
+def test_play_track_in_context_is_unaffected_by_the_separator_in_a_name(state, client):
     """
     A name containing ' :: ' used to add fields, which is why the ids were
     addressed by negative index. They have names now, and the name is just
@@ -693,9 +1152,10 @@ def test_play_track_in_playlist_is_unaffected_by_the_separator_in_a_name(state, 
     """
     fake = client(playback=track_playback())
 
-    screens.play_track_in_playlist(
+    screens.play_track_in_context(
         state,
         track_ref('Intro :: Reprise :: Album :: A :: Road Trip'),
+        'search',
     )
 
     kwargs = fake.named('start_playback')[0][1]
@@ -703,10 +1163,10 @@ def test_play_track_in_playlist_is_unaffected_by_the_separator_in_a_name(state, 
     assert kwargs['offset'] == {'uri': 'spotify:track:track-1'}
 
 
-def test_play_track_in_playlist_redirects_when_there_is_no_device(state, client):
+def test_play_track_in_context_redirects_when_there_is_no_device(state, client):
     fake = client(playback=None)
 
-    result = screens.play_track_in_playlist(state, track_ref('Song'))
+    result = screens.play_track_in_context(state, track_ref('Song'), 'search')
 
     assert result == ('list_devices',)
     assert fake.named('start_playback') == []
@@ -720,10 +1180,10 @@ def test_the_device_redirect_round_trips_back_to_the_original_screen(state, clie
     props = track_ref('Song :: Album :: A :: Road Trip')
     client(playback=None)
 
-    assert screens.play_track(state, props) == ('list_devices',)
+    assert screens.play_track(state, props, 'search') == ('list_devices',)
 
     fake = client()
-    assert screens.device_actions(state, 'd1') == ('play_track', props)
+    assert screens.device_actions(state, 'd1') == ('play_track', props, 'search')
     assert fake.named('transfer_playback') == [('transfer_playback', 'd1')]
     # The redirect state is consumed, so a later visit goes home instead.
     assert state.pending_screen is None
@@ -753,12 +1213,12 @@ def test_a_persisted_device_that_no_longer_exists_is_forgotten(state, client):
     client(playback=None, start_error=device_gone())
     state.set_active_device('d1')
 
-    assert screens.play_track(state, props) == ('list_devices',)
+    assert screens.play_track(state, props, 'search') == ('list_devices',)
     assert state.active_device_id is None
     # Forgotten on disk too, or the next session retries the dead device.
     assert AppState.from_config(state.config).active_device_id is None
     # And the redirect still knows what the user was trying to do.
-    assert state.pending_screen == ('play_track', (props,))
+    assert state.pending_screen == ('play_track', (props, 'search'))
 
 
 def test_resume_forgets_a_persisted_device_that_no_longer_exists(state, client):
@@ -777,13 +1237,17 @@ def test_track_actions_offers_queueing(state, fzf):
     fzf('Add to Queue')
     track = track_ref('Song :: Album :: A :: Road Trip')
 
-    assert screens.track_actions(state, track) == ('add_to_queue', track)
+    assert screens.track_actions(state, track, 'search') == (
+        'add_to_queue',
+        track,
+        'search',
+    )
 
 
 def test_add_to_queue_queues_on_the_device_that_is_playing(state, client):
     fake = client(playback=track_playback())
 
-    assert screens.add_to_queue(state, track_ref('Song')) == ('search',)
+    assert screens.add_to_queue(state, track_ref('Song'), 'search') == ('search',)
     assert fake.named('add_to_queue') == [
         ('add_to_queue', {'uri': 'spotify:track:track-1', 'device_id': 'device-1'})
     ]
@@ -794,8 +1258,10 @@ def test_add_to_queue_returns_to_the_search_so_tracks_can_be_stacked(state, clie
     fake = client(playback=None)
     state.active_device_id = 'd1'
 
-    assert screens.add_to_queue(state, track_ref('Song')) == ('search',)
-    assert screens.add_to_queue(state, track_ref('Other', 'track-2')) == ('search',)
+    assert screens.add_to_queue(state, track_ref('Song'), 'search') == ('search',)
+    assert screens.add_to_queue(state, track_ref('Other', 'track-2'), 'search') == (
+        'search',
+    )
     assert [call[1]['uri'] for call in fake.named('add_to_queue')] == [
         'spotify:track:track-1',
         'spotify:track:track-2',
@@ -806,9 +1272,9 @@ def test_add_to_queue_redirects_when_there_is_no_device(state, client):
     fake = client(playback=None)
     track = track_ref('Song')
 
-    assert screens.add_to_queue(state, track) == ('list_devices',)
+    assert screens.add_to_queue(state, track, 'search') == ('list_devices',)
     assert fake.named('add_to_queue') == []
-    assert state.pending_screen == ('add_to_queue', (track,))
+    assert state.pending_screen == ('add_to_queue', (track, 'search'))
 
 
 def test_add_to_queue_forgets_a_persisted_device_that_no_longer_exists(state, client):
@@ -819,7 +1285,7 @@ def test_add_to_queue_forgets_a_persisted_device_that_no_longer_exists(state, cl
     client(playback=None, queue_error=device_gone())
     state.set_active_device('d1')
 
-    assert screens.add_to_queue(state, track_ref('Song')) == ('list_devices',)
+    assert screens.add_to_queue(state, track_ref('Song'), 'search') == ('list_devices',)
     assert state.active_device_id is None
     assert AppState.from_config(state.config).active_device_id is None
 

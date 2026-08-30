@@ -1,4 +1,5 @@
 from collections import Counter
+from datetime import datetime, timezone
 
 from spotipy import SpotifyException
 
@@ -86,10 +87,20 @@ HOME_CHOICES = {
     '[ 4 ] Play/Pause': 'resume',
     '[ 5 ] Update Cache': 'update_cache',
     '[ 6 ] Current Queue': 'current_queue',
+    '[ 7 ] Play History': 'play_history',
 }
 
 TRACK_ACTIONS_CHOICES = {
-    'Play Track in Playlist': 'play_track_in_playlist',
+    'Play Track in Playlist': 'play_track_in_context',
+    'Play Track': 'play_track',
+    'Add to Queue': 'add_to_queue',
+}
+
+# What a track picked out of the play history can do without knowing anything
+# about where it was played. Resuming the context it came from is offered on
+# top of these, and only when there is one worth resuming, so it cannot be a
+# fixed entry here.
+HISTORY_ACTIONS_CHOICES = {
     'Play Track': 'play_track',
     'Add to Queue': 'add_to_queue',
 }
@@ -162,15 +173,27 @@ def _one_line(value):
     return ' '.join(str(value if value is not None else '').split())
 
 
+def _track_prompt(track_name):
+    """
+    The prompt for a menu about one track. Long names are truncated so the
+    prompt does not push the choices off the line.
+    """
+    track_name = track_name.replace("'", '')
+    if len(track_name) > 20:
+        return f'[{track_name[:20]}...] > '
+    return f'[{track_name}] > '
+
+
 def _artist_names(item):
     names = (_one_line(artist.get('name')) for artist in item.get('artists') or [])
     return ', '.join(name for name in names if name)
 
 
-def describe_queue_item(item):
+def describe_item(item):
     """
-    One queued item, read in the same order as a search result: what it is,
-    what it came from, who made it.
+    One track or episode as a row, read in the same order as a search result:
+    what it is, what it came from, who made it. Shared by every screen that
+    lists items rather than describing one.
     """
     if item.get('type') == 'episode' or item.get('show') is not None:
         # Episodes carry show/publisher rather than album/artists.
@@ -211,9 +234,96 @@ def describe_queue(queue):
 
     marker_width = max(len(marker) for marker, _ in rows)
     return [
-        '{}  {}'.format(marker.rjust(marker_width), describe_queue_item(item))
+        '{}  {}'.format(marker.rjust(marker_width), describe_item(item))
         for marker, item in rows
     ]
+
+
+# Spotify sends `2026-08-29T21:14:03.123Z`. datetime.fromisoformat only accepts
+# that trailing Z from 3.11, and this package supports 3.9, so the fixed prefix
+# is parsed instead -- which is indifferent to the Z and to how many fractional
+# digits came with it.
+PLAYED_AT_FORMAT = '%Y-%m-%dT%H:%M:%S'
+PLAYED_AT_LENGTH = 19
+
+
+def _parse_played_at(played_at):
+    try:
+        parsed = datetime.strptime(played_at[:PLAYED_AT_LENGTH], PLAYED_AT_FORMAT)
+    except (TypeError, ValueError):
+        return None
+    return parsed.replace(tzinfo=timezone.utc)
+
+
+def played_ago(played_at, now):
+    """
+    How long ago, compactly. Empty for a timestamp that will not parse, so a
+    row that Spotify described oddly loses its suffix rather than the screen.
+    """
+    parsed = _parse_played_at(played_at)
+    if parsed is None:
+        return ''
+
+    seconds = (now - parsed).total_seconds()
+    if seconds < 0:
+        # Clock skew between here and Spotify. 'in 3 minutes' would be absurd
+        # on a history, so the newest row just reads as the newest.
+        return 'just now'
+    minutes, hours, days = seconds // 60, seconds // 3600, seconds // 86400
+    if minutes < 1:
+        return 'just now'
+    if hours < 1:
+        return '{:.0f}m ago'.format(minutes)
+    if days < 1:
+        return '{:.0f}h ago'.format(hours)
+    if days < 2:
+        return 'yesterday'
+    return '{:.0f}d ago'.format(days)
+
+
+def current_time():
+    """
+    Exists to be replaceable. The relative times on the history rows are read
+    against this, and a test that cannot hold it still would be asserting
+    against the wall clock.
+    """
+    return datetime.now(timezone.utc)
+
+
+def describe_history_item(entry):
+    """
+    One play as a row. Only a playlist is named: an album is already the row's
+    second field, and an artist or Liked Songs adds nothing the row does not
+    carry -- though both are still named on the entry, for the action menu that
+    offers to resume them.
+    """
+    row = describe_item(entry.track)
+    if entry.context_type == 'playlist' and entry.context_name:
+        row += spotify.DISPLAY_SEPARATOR + _one_line(entry.context_name)
+    return row
+
+
+def describe_history(entries, now):
+    """
+    Builds the display rows for the play history, newest first as Spotify
+    returns it. Numbered the way the queue is: the number is a position on
+    screen, and it is also what keeps two plays of the same track from
+    rendering as the same row.
+    """
+    if not entries:
+        return []
+
+    marker_width = len(str(len(entries)))
+    rows = []
+    for position, entry in enumerate(entries, 1):
+        row = '{}  {}'.format(
+            str(position).rjust(marker_width), describe_history_item(entry)
+        )
+        ago = played_ago(entry.played_at, now)
+        if ago:
+            row += '  ({})'.format(ago)
+        rows.append(row)
+    return rows
 
 
 @screen
@@ -245,6 +355,32 @@ def current_queue(state):
 
     fzf.run_fzf(rows, prompt='[Queue] > ')
     return ('home_screen',)
+
+
+@screen
+def play_history(state):
+    """
+    What Spotify recorded as recently played -- tracks only, newest first, one
+    row per play rather than per track, since playing something three times is
+    the interesting part of a history.
+    """
+    sp = spotify.get_spotify_client(state.config)
+    response = sp.current_user_recently_played()
+    playlist_names = spotify.read_playlist_names(
+        state.config, spotify.history_playlist_ids(response)
+    )
+    entries = spotify.history_entries(response, playlist_names)
+    rows = describe_history(entries, current_time())
+    if not rows:
+        return ('home_screen',)
+
+    chosen = fzf.run_fzf(rows, prompt='[History] > ')[0]
+    # Row -> entry, the way list_devices maps a label back to a device. The
+    # position each row is numbered with is what makes the keys unique.
+    entry = dict(zip(rows, entries)).get(chosen)
+    if entry is None:
+        return ('home_screen',)
+    return 'history_actions', entry
 
 
 @screen
@@ -324,41 +460,80 @@ def search(state):
     # An empty selection -- the user hit Esc -- carries no separator.
     if spotify.SEPARATOR not in chosen:
         return ('home_screen',)
-    return 'track_actions', spotify.parse_track_line(chosen)
+    return 'track_actions', spotify.parse_track_line(chosen), 'search'
+
+
+def context_action_label(entry):
+    """
+    The label for resuming what a track was played inside, or None when there
+    is nothing to resume. A playlist that was never cached has no name to offer
+    but is still worth offering, since the action needs only the uri.
+    """
+    if not entry.is_resumable:
+        return None
+    if entry.context_name:
+        return 'Play in {}'.format(_one_line(entry.context_name))
+    return 'Play in {}'.format(entry.context_type.capitalize())
 
 
 @screen
-def track_actions(_, track):
-    track_name = track.name.replace("'", '')
-    if len(track_name) > 20:
-        prompt = f'[{track_name[:20]}...] > '
-    else:
-        prompt = f'[{track_name}] > '
+def history_actions(_, entry):
+    """
+    Everything here is already on the entry, so opening this menu costs no
+    request -- which is what naming the context when the rows were built buys.
+    """
+    choices = dict(HISTORY_ACTIONS_CHOICES)
+    context_label = context_action_label(entry)
+    if context_label is not None:
+        choices[context_label] = 'play_track_in_context'
 
-    chosen = fzf.run_fzf(list(TRACK_ACTIONS_CHOICES.keys()), prompt=prompt)[0]
+    chosen = fzf.run_fzf(list(choices.keys()), prompt=_track_prompt(entry.name))[0]
     if chosen == '':
-        return ('search',)
-    return TRACK_ACTIONS_CHOICES[chosen], track
+        return ('play_history',)
+    return choices[chosen], entry, 'play_history'
 
 
 @screen
-def play_track_in_playlist(state, track):
+def track_actions(_, track, origin):
+    """
+    `origin` is the screen the track was picked on, carried through every
+    action below so each of them returns where the user actually was. Spelled
+    out at each call site rather than defaulted, so a new caller has to say
+    where it came from instead of silently inheriting the search.
+    """
+    chosen = fzf.run_fzf(
+        list(TRACK_ACTIONS_CHOICES.keys()), prompt=_track_prompt(track.name)
+    )[0]
+    if chosen == '':
+        return (origin,)
+    return TRACK_ACTIONS_CHOICES[chosen], track, origin
+
+
+@screen
+def play_track_in_context(state, track, origin):
+    """
+    Plays the track inside whatever it was found in, so what follows it is the
+    rest of that playlist or album rather than nothing. `offset` is what starts
+    the context at this track, and Spotify accepts it only for a playlist or an
+    album -- which is why callers that hold some other kind of context do not
+    route here.
+    """
     sp = spotify.get_spotify_client(state.config)
     device_id = _resolve_device(state, sp.current_playback())
     started = device_id is not None and _player_command(
         state,
         sp.start_playback,
         device_id=device_id,
-        context_uri=f'spotify:playlist:{track.playlist_id}',
+        context_uri=track.context_uri,
         offset={'uri': f'spotify:track:{track.track_id}'},
     )
     if not started:
-        return _redirect_to_devices(state, 'play_track_in_playlist', track)
-    return ('search',)
+        return _redirect_to_devices(state, 'play_track_in_context', track, origin)
+    return (origin,)
 
 
 @screen
-def play_track(state, track):
+def play_track(state, track, origin):
     sp = spotify.get_spotify_client(state.config)
     device_id = _resolve_device(state, sp.current_playback())
     started = device_id is not None and _player_command(
@@ -368,15 +543,15 @@ def play_track(state, track):
         uris=[f'spotify:track:{track.track_id}'],
     )
     if not started:
-        return _redirect_to_devices(state, 'play_track', track)
-    return ('search',)
+        return _redirect_to_devices(state, 'play_track', track, origin)
+    return (origin,)
 
 
 @screen
-def add_to_queue(state, track):
+def add_to_queue(state, track, origin):
     """
     Appends to the queue, so tracks can be stacked one after another without
-    leaving the results -- which is why this returns to the search.
+    leaving the list they were picked from -- which is why this returns there.
     """
     sp = spotify.get_spotify_client(state.config)
     device_id = _resolve_device(state, sp.current_playback())
@@ -387,5 +562,5 @@ def add_to_queue(state, track):
         device_id=device_id,
     )
     if not queued:
-        return _redirect_to_devices(state, 'add_to_queue', track)
-    return ('search',)
+        return _redirect_to_devices(state, 'add_to_queue', track, origin)
+    return (origin,)
