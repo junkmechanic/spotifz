@@ -87,8 +87,6 @@ HOME_CHOICES = {
     '[ 4 ] Play/Pause': 'resume',
     '[ 5 ] Current Queue': 'current_queue',
     '[ 6 ] Play History': 'play_history',
-    # Last: the one entry that is maintenance rather than playback, and the
-    # only one that goes away and rebuilds the library before it returns.
     '[ 7 ] Update Cache': 'update_cache',
 }
 
