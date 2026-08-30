@@ -324,11 +324,17 @@ def search(state):
     # An empty selection -- the user hit Esc -- carries no separator.
     if spotify.SEPARATOR not in chosen:
         return ('home_screen',)
-    return 'track_actions', spotify.parse_track_line(chosen)
+    return 'track_actions', spotify.parse_track_line(chosen), 'search'
 
 
 @screen
-def track_actions(_, track):
+def track_actions(_, track, origin):
+    """
+    `origin` is the screen the track was picked on, carried through every
+    action below so each of them returns where the user actually was. Spelled
+    out at each call site rather than defaulted, so a new caller has to say
+    where it came from instead of silently inheriting the search.
+    """
     track_name = track.name.replace("'", '')
     if len(track_name) > 20:
         prompt = f'[{track_name[:20]}...] > '
@@ -337,12 +343,12 @@ def track_actions(_, track):
 
     chosen = fzf.run_fzf(list(TRACK_ACTIONS_CHOICES.keys()), prompt=prompt)[0]
     if chosen == '':
-        return ('search',)
-    return TRACK_ACTIONS_CHOICES[chosen], track
+        return (origin,)
+    return TRACK_ACTIONS_CHOICES[chosen], track, origin
 
 
 @screen
-def play_track_in_context(state, track):
+def play_track_in_context(state, track, origin):
     """
     Plays the track inside whatever it was found in, so what follows it is the
     rest of that playlist or album rather than nothing. `offset` is what starts
@@ -360,12 +366,12 @@ def play_track_in_context(state, track):
         offset={'uri': f'spotify:track:{track.track_id}'},
     )
     if not started:
-        return _redirect_to_devices(state, 'play_track_in_context', track)
-    return ('search',)
+        return _redirect_to_devices(state, 'play_track_in_context', track, origin)
+    return (origin,)
 
 
 @screen
-def play_track(state, track):
+def play_track(state, track, origin):
     sp = spotify.get_spotify_client(state.config)
     device_id = _resolve_device(state, sp.current_playback())
     started = device_id is not None and _player_command(
@@ -375,15 +381,15 @@ def play_track(state, track):
         uris=[f'spotify:track:{track.track_id}'],
     )
     if not started:
-        return _redirect_to_devices(state, 'play_track', track)
-    return ('search',)
+        return _redirect_to_devices(state, 'play_track', track, origin)
+    return (origin,)
 
 
 @screen
-def add_to_queue(state, track):
+def add_to_queue(state, track, origin):
     """
     Appends to the queue, so tracks can be stacked one after another without
-    leaving the results -- which is why this returns to the search.
+    leaving the list they were picked from -- which is why this returns there.
     """
     sp = spotify.get_spotify_client(state.config)
     device_id = _resolve_device(state, sp.current_playback())
@@ -394,5 +400,5 @@ def add_to_queue(state, track):
         device_id=device_id,
     )
     if not queued:
-        return _redirect_to_devices(state, 'add_to_queue', track)
-    return ('search',)
+        return _redirect_to_devices(state, 'add_to_queue', track, origin)
+    return (origin,)

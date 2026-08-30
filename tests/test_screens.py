@@ -158,6 +158,16 @@ def test_every_menu_destination_is_a_registered_screen(menu):
         assert destination in screens.SCREENS, label
 
 
+def test_every_track_action_accepts_the_screen_it_was_entered_from():
+    """
+    An action that dropped `origin` would compile and then strand the user on
+    whichever screen its own return value happened to name.
+    """
+    for label, destination in screens.TRACK_ACTIONS_CHOICES.items():
+        params = list(inspect.signature(screens.SCREENS[destination]).parameters)
+        assert params[-1] == 'origin', label
+
+
 def test_a_helper_that_takes_the_state_is_not_a_screen():
     """
     sp_devices has a screen's signature and is called directly by list_devices.
@@ -606,9 +616,10 @@ def test_search_parses_the_selected_line_into_a_track_ref(state, fzf_sink):
         )
     )
 
-    choice, track = screens.search(state)
+    choice, track, origin = screens.search(state)
 
     assert choice == 'track_actions'
+    assert origin == 'search'
     assert track.track_id == 'track-1'
     assert track.playlist_id == 'pl-1'
     assert track.display == 'Song :: Album :: A, B :: Road Trip'
@@ -626,19 +637,41 @@ def test_track_actions_forwards_the_track_props(state, fzf):
     fzf('Play Track')
     track = track_ref('Song :: Album :: A :: Road Trip')
 
-    assert screens.track_actions(state, track) == ('play_track', track)
+    assert screens.track_actions(state, track, 'search') == (
+        'play_track',
+        track,
+        'search',
+    )
 
 
-def test_track_actions_returns_to_search_on_an_empty_selection(state, fzf):
-    fzf('')
+def test_track_actions_returns_to_where_the_track_was_picked(state, fzf):
+    """
+    Esc goes back to the list the user was reading, whichever one that was --
+    the search here, the play history for a track picked there.
+    """
+    fzf('', '')
 
-    assert screens.track_actions(state, track_ref('Song')) == ('search',)
+    assert screens.track_actions(state, track_ref('Song'), 'search') == ('search',)
+    assert screens.track_actions(state, track_ref('Song'), 'play_history') == (
+        'play_history',
+    )
+
+
+def test_track_actions_carries_the_origin_to_the_action(state, fzf):
+    fzf('Add to Queue')
+    track = track_ref('Song')
+
+    assert screens.track_actions(state, track, 'play_history') == (
+        'add_to_queue',
+        track,
+        'play_history',
+    )
 
 
 def test_track_actions_truncates_a_long_prompt(state, fzf):
     seen = fzf('Play Track')
 
-    screens.track_actions(state, track_ref('A' * 40))
+    screens.track_actions(state, track_ref('A' * 40), 'search')
 
     assert seen['prompts'][0] == '[{}...] > '.format('A' * 20)
 
@@ -652,7 +685,7 @@ def test_play_track_starts_the_track_on_the_active_device(state, client):
 
     track = track_ref('Song')
 
-    assert screens.play_track(state, track) == ('search',)
+    assert screens.play_track(state, track, 'search') == ('search',)
     assert fake.named('start_playback') == [
         ('start_playback', {'device_id': 'd1', 'uris': ['spotify:track:track-1']})
     ]
@@ -663,14 +696,14 @@ def test_play_track_redirects_when_there_is_no_device(state, client):
 
     track = track_ref('Song')
 
-    assert screens.play_track(state, track) == ('list_devices',)
+    assert screens.play_track(state, track, 'search') == ('list_devices',)
     assert fake.named('start_playback') == []
 
 
 def test_play_track_in_context_uses_the_playlist_as_context(state, client):
     fake = client(playback=track_playback())
 
-    result = screens.play_track_in_context(state, track_ref('Song'))
+    result = screens.play_track_in_context(state, track_ref('Song'), 'search')
 
     assert result == ('search',)
     assert fake.named('start_playback') == [
@@ -696,6 +729,7 @@ def test_play_track_in_context_is_unaffected_by_the_separator_in_a_name(state, c
     screens.play_track_in_context(
         state,
         track_ref('Intro :: Reprise :: Album :: A :: Road Trip'),
+        'search',
     )
 
     kwargs = fake.named('start_playback')[0][1]
@@ -706,7 +740,7 @@ def test_play_track_in_context_is_unaffected_by_the_separator_in_a_name(state, c
 def test_play_track_in_context_redirects_when_there_is_no_device(state, client):
     fake = client(playback=None)
 
-    result = screens.play_track_in_context(state, track_ref('Song'))
+    result = screens.play_track_in_context(state, track_ref('Song'), 'search')
 
     assert result == ('list_devices',)
     assert fake.named('start_playback') == []
@@ -720,10 +754,10 @@ def test_the_device_redirect_round_trips_back_to_the_original_screen(state, clie
     props = track_ref('Song :: Album :: A :: Road Trip')
     client(playback=None)
 
-    assert screens.play_track(state, props) == ('list_devices',)
+    assert screens.play_track(state, props, 'search') == ('list_devices',)
 
     fake = client()
-    assert screens.device_actions(state, 'd1') == ('play_track', props)
+    assert screens.device_actions(state, 'd1') == ('play_track', props, 'search')
     assert fake.named('transfer_playback') == [('transfer_playback', 'd1')]
     # The redirect state is consumed, so a later visit goes home instead.
     assert state.pending_screen is None
@@ -753,12 +787,12 @@ def test_a_persisted_device_that_no_longer_exists_is_forgotten(state, client):
     client(playback=None, start_error=device_gone())
     state.set_active_device('d1')
 
-    assert screens.play_track(state, props) == ('list_devices',)
+    assert screens.play_track(state, props, 'search') == ('list_devices',)
     assert state.active_device_id is None
     # Forgotten on disk too, or the next session retries the dead device.
     assert AppState.from_config(state.config).active_device_id is None
     # And the redirect still knows what the user was trying to do.
-    assert state.pending_screen == ('play_track', (props,))
+    assert state.pending_screen == ('play_track', (props, 'search'))
 
 
 def test_resume_forgets_a_persisted_device_that_no_longer_exists(state, client):
@@ -777,13 +811,17 @@ def test_track_actions_offers_queueing(state, fzf):
     fzf('Add to Queue')
     track = track_ref('Song :: Album :: A :: Road Trip')
 
-    assert screens.track_actions(state, track) == ('add_to_queue', track)
+    assert screens.track_actions(state, track, 'search') == (
+        'add_to_queue',
+        track,
+        'search',
+    )
 
 
 def test_add_to_queue_queues_on_the_device_that_is_playing(state, client):
     fake = client(playback=track_playback())
 
-    assert screens.add_to_queue(state, track_ref('Song')) == ('search',)
+    assert screens.add_to_queue(state, track_ref('Song'), 'search') == ('search',)
     assert fake.named('add_to_queue') == [
         ('add_to_queue', {'uri': 'spotify:track:track-1', 'device_id': 'device-1'})
     ]
@@ -794,8 +832,10 @@ def test_add_to_queue_returns_to_the_search_so_tracks_can_be_stacked(state, clie
     fake = client(playback=None)
     state.active_device_id = 'd1'
 
-    assert screens.add_to_queue(state, track_ref('Song')) == ('search',)
-    assert screens.add_to_queue(state, track_ref('Other', 'track-2')) == ('search',)
+    assert screens.add_to_queue(state, track_ref('Song'), 'search') == ('search',)
+    assert screens.add_to_queue(state, track_ref('Other', 'track-2'), 'search') == (
+        'search',
+    )
     assert [call[1]['uri'] for call in fake.named('add_to_queue')] == [
         'spotify:track:track-1',
         'spotify:track:track-2',
@@ -806,9 +846,9 @@ def test_add_to_queue_redirects_when_there_is_no_device(state, client):
     fake = client(playback=None)
     track = track_ref('Song')
 
-    assert screens.add_to_queue(state, track) == ('list_devices',)
+    assert screens.add_to_queue(state, track, 'search') == ('list_devices',)
     assert fake.named('add_to_queue') == []
-    assert state.pending_screen == ('add_to_queue', (track,))
+    assert state.pending_screen == ('add_to_queue', (track, 'search'))
 
 
 def test_add_to_queue_forgets_a_persisted_device_that_no_longer_exists(state, client):
@@ -819,7 +859,7 @@ def test_add_to_queue_forgets_a_persisted_device_that_no_longer_exists(state, cl
     client(playback=None, queue_error=device_gone())
     state.set_active_device('d1')
 
-    assert screens.add_to_queue(state, track_ref('Song')) == ('list_devices',)
+    assert screens.add_to_queue(state, track_ref('Song'), 'search') == ('list_devices',)
     assert state.active_device_id is None
     assert AppState.from_config(state.config).active_device_id is None
 
