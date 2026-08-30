@@ -10,6 +10,7 @@ import pytest
 PREVIEW_PATH = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
     'spotifz',
+    'scripts',
     'preview.py',
 )
 
@@ -22,9 +23,9 @@ ADDED_AT = '2019-04-03T10:00:00Z'
 @pytest.fixture(scope='module')
 def preview():
     """
-    Loaded from its path, the way it is run: importing spotifz.preview would
-    pull in the package -- and spotipy behind it -- which is the one thing the
-    renderer exists to avoid.
+    Loaded from its path, the way it is run: importing spotifz.scripts.preview
+    would pull in the package -- and spotipy behind it -- which is the one thing
+    the renderer exists to avoid.
     """
     spec = importlib.util.spec_from_file_location('preview_under_test', PREVIEW_PATH)
     module = importlib.util.module_from_spec(spec)

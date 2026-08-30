@@ -7,6 +7,9 @@ Executed as a script and never imported, which is why there is not a single
 relative import below: importing the spotifz package reaches spotipy, and fzf
 reruns this command on every cursor move, so that import would be paid on every
 arrow key. Standard library only, one small file read.
+
+It lives outside the importable packages and ships as package data; see
+pyproject.toml, which has to name it for that reason.
 """
 
 import datetime

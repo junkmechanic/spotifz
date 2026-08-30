@@ -28,6 +28,13 @@ dev = ['pre-commit>=3.0', 'pytest>=7.0', 'ruff>=0.16']
 [tool.setuptools.packages.find]
 include = ['spotifz*']
 
+[tool.setuptools.package-data]
+# spotifz/scripts/ holds no __init__.py, so packages.find above does not
+# collect it. Named here so the renderer still ships and lands where fzf.py
+# looks for it: without this a wheel installs an app whose preview pane is
+# blank, and fzf reports nothing when the command behind a pane fails.
+spotifz = ['scripts/*.py']
+
 [tool.ruff]
 line-length = 90
 
