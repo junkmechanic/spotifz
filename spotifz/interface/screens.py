@@ -174,6 +174,17 @@ def _one_line(value):
     return ' '.join(str(value if value is not None else '').split())
 
 
+def _track_prompt(track_name):
+    """
+    The prompt for a menu about one track. Long names are truncated so the
+    prompt does not push the choices off the line.
+    """
+    track_name = track_name.replace("'", '')
+    if len(track_name) > 20:
+        return f'[{track_name[:20]}...] > '
+    return f'[{track_name}] > '
+
+
 def _artist_names(item):
     names = (_one_line(artist.get('name')) for artist in item.get('artists') or [])
     return ', '.join(name for name in names if name)
@@ -247,6 +258,9 @@ class HistoryEntry(NamedTuple):
     track_id: str
     context_uri: Optional[str]
     context_type: Optional[str]
+    # What the context is called, where that is known without asking Spotify:
+    # a playlist of the user's own is named by the cache, an album by the track
+    # itself. Not the same thing as what the row shows -- see history_entries.
     context_name: Optional[str]
     played_at: str
 
@@ -285,21 +299,28 @@ def history_entries(response, playlist_names=None):
         if not track:
             continue
         context = item.get('context') or None
+        context_type = (context or {}).get('type')
         playlist_id = context_playlist_id(context)
-        # Only a playlist is named on the row: an album is already the row's
-        # second field, and an artist or Liked Songs adds nothing the row does
-        # not carry.
-        context_name = playlist_names.get(playlist_id) if playlist_id else None
+        if playlist_id:
+            context_name = playlist_names.get(playlist_id)
+        elif context_type == 'album':
+            context_name = _one_line((track.get('album') or {}).get('name')) or None
+        else:
+            context_name = None
 
+        # Only a playlist reaches the row. An album is already the row's second
+        # field, and an artist or Liked Songs adds nothing the row does not
+        # carry -- but both are still worth naming on the entry, for the action
+        # menu that offers to resume them.
         display = describe_item(track)
-        if context_name:
+        if playlist_id and context_name:
             display += spotify.DISPLAY_SEPARATOR + _one_line(context_name)
         entries.append(
             HistoryEntry(
                 display=display,
                 track_id=track.get('id'),
                 context_uri=(context or {}).get('uri'),
-                context_type=(context or {}).get('type'),
+                context_type=context_type,
                 context_name=context_name,
                 played_at=item.get('played_at') or '',
             )
@@ -528,20 +549,13 @@ def search(state):
 def context_action_label(entry):
     """
     The label for resuming what a track was played inside, or None when there
-    is nothing to resume. The name is whatever is already known -- the playlist
-    named off the cache when the rows were built, the album off the track --
-    and a playlist that was never cached still offers the action, just without
-    a name for it.
+    is nothing to resume. A playlist that was never cached has no name to offer
+    but is still worth offering, since the action needs only the uri.
     """
     if not entry.is_resumable:
         return None
-    name = entry.context_name
-    if not name and entry.context_type == 'album':
-        # The album is the row's second field, so it is on the display already.
-        parts = entry.display.split(spotify.DISPLAY_SEPARATOR)
-        name = parts[1] if len(parts) > 1 else None
-    if name:
-        return 'Play in {}'.format(name)
+    if entry.context_name:
+        return 'Play in {}'.format(entry.context_name)
     return 'Play in {}'.format(entry.context_type.capitalize())
 
 
@@ -560,17 +574,6 @@ def history_actions(_, entry):
     if chosen == '':
         return ('play_history',)
     return choices[chosen], entry, 'play_history'
-
-
-def _track_prompt(track_name):
-    """
-    The prompt for a menu about one track. Long names are truncated so the
-    prompt does not push the choices off the line.
-    """
-    track_name = track_name.replace("'", '')
-    if len(track_name) > 20:
-        return f'[{track_name[:20]}...] > '
-    return f'[{track_name}] > '
 
 
 @screen

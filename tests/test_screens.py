@@ -514,14 +514,19 @@ def test_history_entries_leaves_an_uncached_playlist_unnamed():
     assert entry.is_resumable
 
 
-def test_history_entries_does_not_name_an_album_context():
-    """The album is already the row's second field."""
+def test_history_entries_keeps_an_album_context_off_the_row():
+    """
+    The album is already the row's second field, so repeating it would be
+    noise -- but the entry still knows the name, for the action that offers to
+    resume it.
+    """
     context = {'type': 'album', 'uri': 'spotify:album:al-1'}
-    response = {'items': [history_item(context=context)]}
+    response = {'items': [history_item(album='Mezzanine', context=context)]}
 
     entry = screens.history_entries(response)[0]
 
-    assert entry.display == 'Song :: Album :: A, B'
+    assert entry.display == 'Song :: Mezzanine :: A, B'
+    assert entry.context_name == 'Mezzanine'
     assert entry.is_resumable
 
 
