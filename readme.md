@@ -27,10 +27,6 @@ Selected Play:
 2. [x] Add to Queue
 3. [x] Play in the playlist or album it was played in
 
-A play history row names the playlist a track was played from when that
-playlist is one of your own -- the name comes from the local cache, so one you
-have not run `Update Cache` for since adding goes unnamed.
-
 # Installation
 
 1. Make sure you have set up a developer account with Spotify.
@@ -43,11 +39,6 @@ have not run `Update Cache` for since adding goes unnamed.
 5. Change to the root directory of this project and run `pip install .`
 6. You should be able to call `spotifz` from your shell.
 7. Select `Update Cache` the first time you run `spotifz`.
-
-Upgrading a checkout that asks Spotify for a permission it did not ask for
-before invalidates the cached token, because the refresh token is tied to the
-set of scopes it was granted for. `spotifz` notices, says so, and re-runs the
-browser authorization once; nothing needs to be deleted by hand.
 
 `spotifz` writes two files of its own into `cache_path`, both named after the
 `user` in your config: `<user>_spotify.cache.json` holds the OAuth token, and

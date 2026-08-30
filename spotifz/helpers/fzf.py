@@ -72,10 +72,6 @@ def run_fzf(search_items, prompt=None):
         text=True,
         stdout=subprocess.PIPE,
     )
-    # strip('\n'), not strip(): a candidate is returned exactly as it was
-    # given, and a bare strip would eat the padding off a row that lines up
-    # under a wider one -- which a caller matching the selection back against
-    # what it offered would then fail to recognise.
     selected = fuzzy_result.stdout.strip('\n').split('\n')
     return selected
 
