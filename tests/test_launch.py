@@ -3,7 +3,6 @@ import os
 import pytest
 
 import spotifz
-from spotifz.helpers import update_data_paths
 from spotifz.state import AppState
 
 
@@ -77,29 +76,6 @@ def test_validate_config_reports_every_missing_key_at_once():
         'user',
     ):
         assert expected in message
-
-
-def test_update_data_paths_expands_the_user_directory(monkeypatch, tmp_path):
-    monkeypatch.setenv('HOME', str(tmp_path))
-    cfg = {'cache_path': '~/.cache/spotifz'}
-
-    update_data_paths(cfg)
-
-    assert cfg['cache_path'] == str(tmp_path / '.cache/spotifz')
-
-
-def test_update_data_paths_nests_everything_under_spotify_data():
-    cfg = {'cache_path': '/tmp/spotifz-cache'}
-
-    update_data_paths(cfg)
-
-    base = os.path.join('/tmp/spotifz-cache', 'spotify_data')
-    assert cfg['data_paths'] == {
-        'base_path': base,
-        'playlist_path': os.path.join(base, 'playlists'),
-        'track_path': os.path.join(base, 'tracks'),
-        'album_path': os.path.join(base, 'albums'),
-    }
 
 
 def test_launch_walks_screens_until_none(config, monkeypatch, no_fzf_check):

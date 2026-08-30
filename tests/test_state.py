@@ -2,7 +2,7 @@ import json
 import os
 import shutil
 
-from spotifz.state import PERSISTED_FIELDS, AppState
+from spotifz.state import PERSISTED_FIELDS, AppState, update_data_paths
 
 
 def raw_config(cache_path):
@@ -138,3 +138,26 @@ def test_taking_the_pending_screen_consumes_it(tmp_path):
 
     assert state.take_pending_screen() == ('play_track', (['Song'],))
     assert state.take_pending_screen() is None
+
+
+def test_update_data_paths_expands_the_user_directory(monkeypatch, tmp_path):
+    monkeypatch.setenv('HOME', str(tmp_path))
+    cfg = {'cache_path': '~/.cache/spotifz'}
+
+    update_data_paths(cfg)
+
+    assert cfg['cache_path'] == str(tmp_path / '.cache/spotifz')
+
+
+def test_update_data_paths_nests_everything_under_spotify_data():
+    cfg = {'cache_path': '/tmp/spotifz-cache'}
+
+    update_data_paths(cfg)
+
+    base = os.path.join('/tmp/spotifz-cache', 'spotify_data')
+    assert cfg['data_paths'] == {
+        'base_path': base,
+        'playlist_path': os.path.join(base, 'playlists'),
+        'track_path': os.path.join(base, 'tracks'),
+        'album_path': os.path.join(base, 'albums'),
+    }
