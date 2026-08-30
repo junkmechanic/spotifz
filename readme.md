@@ -39,6 +39,11 @@ Selected Track:
 6. You should be able to call `spotifz` from your shell.
 7. Select `Update Cache` the first time you run `spotifz`.
 
+Upgrading a checkout that asks Spotify for a permission it did not ask for
+before invalidates the cached token, because the refresh token is tied to the
+set of scopes it was granted for. `spotifz` notices, says so, and re-runs the
+browser authorization once; nothing needs to be deleted by hand.
+
 `spotifz` writes two files of its own into `cache_path`, both named after the
 `user` in your config: `<user>_spotify.cache.json` holds the OAuth token, and
 `<user>_state.json` remembers the playback device you last chose, so you do not
