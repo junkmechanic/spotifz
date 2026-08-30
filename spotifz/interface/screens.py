@@ -85,9 +85,9 @@ HOME_CHOICES = {
     '[ 2 ] Current Playback': 'current_playback',
     '[ 3 ] Devices': 'list_devices',
     '[ 4 ] Play/Pause': 'resume',
-    '[ 5 ] Update Cache': 'update_cache',
-    '[ 6 ] Current Queue': 'current_queue',
-    '[ 7 ] Play History': 'play_history',
+    '[ 5 ] Current Queue': 'current_queue',
+    '[ 6 ] Play History': 'play_history',
+    '[ 7 ] Update Cache': 'update_cache',
 }
 
 TRACK_ACTIONS_CHOICES = {
