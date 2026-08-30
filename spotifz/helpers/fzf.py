@@ -17,9 +17,13 @@ from ..spotify.sink import (
 
 # Resolved from this file rather than from the package, and handed to the
 # interpreter as a path: the renderer must not be imported, which is what
-# `python -m spotifz.preview` would do.
+# `python -m spotifz.scripts.preview` would do. What holds that line is
+# test_does_not_import_spotipy_or_the_package, not the layout -- an implicit
+# namespace package imports perfectly well without an __init__.py.
 PREVIEW_RENDERER = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'preview.py'
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+    'scripts',
+    'preview.py',
 )
 
 

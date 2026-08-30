@@ -2,8 +2,7 @@ import os
 
 import pytest
 
-from spotifz.helpers import update_data_paths
-from spotifz.state import AppState
+from spotifz.state import AppState, update_data_paths
 
 
 @pytest.fixture

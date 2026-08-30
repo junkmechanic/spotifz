@@ -3,7 +3,31 @@ import os
 from dataclasses import dataclass
 from typing import Any, Dict, Optional, Tuple
 
-from .helpers import update_data_paths
+
+def get_expanded_path(path_str, append=None):
+    expanded_path = os.path.expanduser(path_str)
+    if append is not None:
+        expanded_path = os.path.join(expanded_path, append)
+    return expanded_path
+
+
+def update_data_paths(config):
+    """
+    Fills in where everything the app caches lives, from the one path the user
+    configures. Lives here because AppState.from_config is the only thing that
+    calls it: it is the first half of normalising a config, not a utility the
+    app reaches for from several places.
+    """
+    config['cache_path'] = get_expanded_path(config['cache_path'])
+
+    data_path = os.path.join(config['cache_path'], 'spotify_data')
+    config['data_paths'] = {
+        'base_path': data_path,
+        'playlist_path': os.path.join(data_path, 'playlists'),
+        'track_path': os.path.join(data_path, 'tracks'),
+        'album_path': os.path.join(data_path, 'albums'),
+    }
+
 
 # Persistence is an explicit whitelist, never asdict(self): a field holding a
 # live handle (a database connection, an API client) must be addable without

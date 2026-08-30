@@ -179,6 +179,16 @@ def test_the_preview_command_renders_a_track_whose_name_holds_the_separator(conf
     assert 'Song One' in result.stdout
 
 
+def test_the_preview_renderer_is_where_fzf_is_told_to_look():
+    """
+    fzf reports nothing when the command behind a pane fails, so a renderer
+    that has moved shows up as an empty pane and nothing else. The path is
+    built by hand from this file's location, which is exactly the kind of thing
+    a directory move breaks silently.
+    """
+    assert os.path.exists(fzf.PREVIEW_RENDERER), fzf.PREVIEW_RENDERER
+
+
 def test_ensure_fzf_passes_when_fzf_is_on_the_path(monkeypatch):
     monkeypatch.setattr(fzf.shutil, 'which', lambda name: '/usr/bin/fzf')
     ensure_fzf()
