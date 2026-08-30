@@ -126,7 +126,7 @@ EXPECTED_SCREENS = {
     'update_cache',
     'track_actions',
     'play_track',
-    'play_track_in_playlist',
+    'play_track_in_context',
     'add_to_queue',
 }
 
@@ -667,10 +667,10 @@ def test_play_track_redirects_when_there_is_no_device(state, client):
     assert fake.named('start_playback') == []
 
 
-def test_play_track_in_playlist_uses_the_playlist_as_context(state, client):
+def test_play_track_in_context_uses_the_playlist_as_context(state, client):
     fake = client(playback=track_playback())
 
-    result = screens.play_track_in_playlist(state, track_ref('Song'))
+    result = screens.play_track_in_context(state, track_ref('Song'))
 
     assert result == ('search',)
     assert fake.named('start_playback') == [
@@ -685,7 +685,7 @@ def test_play_track_in_playlist_uses_the_playlist_as_context(state, client):
     ]
 
 
-def test_play_track_in_playlist_is_unaffected_by_the_separator_in_a_name(state, client):
+def test_play_track_in_context_is_unaffected_by_the_separator_in_a_name(state, client):
     """
     A name containing ' :: ' used to add fields, which is why the ids were
     addressed by negative index. They have names now, and the name is just
@@ -693,7 +693,7 @@ def test_play_track_in_playlist_is_unaffected_by_the_separator_in_a_name(state, 
     """
     fake = client(playback=track_playback())
 
-    screens.play_track_in_playlist(
+    screens.play_track_in_context(
         state,
         track_ref('Intro :: Reprise :: Album :: A :: Road Trip'),
     )
@@ -703,10 +703,10 @@ def test_play_track_in_playlist_is_unaffected_by_the_separator_in_a_name(state, 
     assert kwargs['offset'] == {'uri': 'spotify:track:track-1'}
 
 
-def test_play_track_in_playlist_redirects_when_there_is_no_device(state, client):
+def test_play_track_in_context_redirects_when_there_is_no_device(state, client):
     fake = client(playback=None)
 
-    result = screens.play_track_in_playlist(state, track_ref('Song'))
+    result = screens.play_track_in_context(state, track_ref('Song'))
 
     assert result == ('list_devices',)
     assert fake.named('start_playback') == []

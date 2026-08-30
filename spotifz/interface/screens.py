@@ -89,7 +89,7 @@ HOME_CHOICES = {
 }
 
 TRACK_ACTIONS_CHOICES = {
-    'Play Track in Playlist': 'play_track_in_playlist',
+    'Play Track in Playlist': 'play_track_in_context',
     'Play Track': 'play_track',
     'Add to Queue': 'add_to_queue',
 }
@@ -342,18 +342,25 @@ def track_actions(_, track):
 
 
 @screen
-def play_track_in_playlist(state, track):
+def play_track_in_context(state, track):
+    """
+    Plays the track inside whatever it was found in, so what follows it is the
+    rest of that playlist or album rather than nothing. `offset` is what starts
+    the context at this track, and Spotify accepts it only for a playlist or an
+    album -- which is why callers that hold some other kind of context do not
+    route here.
+    """
     sp = spotify.get_spotify_client(state.config)
     device_id = _resolve_device(state, sp.current_playback())
     started = device_id is not None and _player_command(
         state,
         sp.start_playback,
         device_id=device_id,
-        context_uri=f'spotify:playlist:{track.playlist_id}',
+        context_uri=track.context_uri,
         offset={'uri': f'spotify:track:{track.track_id}'},
     )
     if not started:
-        return _redirect_to_devices(state, 'play_track_in_playlist', track)
+        return _redirect_to_devices(state, 'play_track_in_context', track)
     return ('search',)
 
 

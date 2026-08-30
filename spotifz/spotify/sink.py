@@ -39,6 +39,13 @@ class TrackRef(NamedTuple):
         # DISPLAY_SEPARATOR truncates the prompt and nothing else.
         return self.display.split(DISPLAY_SEPARATOR)[0]
 
+    @property
+    def context_uri(self):
+        # What to play this track *within*. A track reached through the search
+        # was found inside a playlist, so that is its context; other sources of
+        # a track carry a context of their own and name it the same way.
+        return 'spotify:playlist:{}'.format(self.playlist_id)
+
 
 def _clean(value):
     """

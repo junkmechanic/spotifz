@@ -7,6 +7,7 @@ from spotifz.spotify.sink import (
     PLAYLIST_NAME_FIELD,
     SEPARATOR,
     TRACK_ID_FIELD,
+    TrackRef,
     format_track_line,
     parse_track_line,
     sink_all_tracks,
@@ -246,3 +247,13 @@ def test_parse_track_line_round_trips_what_format_wrote(make_track):
     # ...but `name` is prompt decoration and stops at the display separator.
     # Cosmetic, and the only thing ' :: ' in a name still affects.
     assert ref.name == 'Song'
+
+
+def test_track_ref_names_its_playlist_as_the_playback_context():
+    """
+    A track found through the search was found inside a playlist, so that is
+    what `Play Track in Playlist` starts.
+    """
+    ref = TrackRef('Song :: Album :: A', 'track-1', 'pl-1', 'Road Trip', '')
+
+    assert ref.context_uri == 'spotify:playlist:pl-1'
