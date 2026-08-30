@@ -167,10 +167,11 @@ def _artist_names(item):
     return ', '.join(name for name in names if name)
 
 
-def describe_queue_item(item):
+def describe_item(item):
     """
-    One queued item, read in the same order as a search result: what it is,
-    what it came from, who made it.
+    One track or episode as a row, read in the same order as a search result:
+    what it is, what it came from, who made it. Shared by every screen that
+    lists items rather than describing one.
     """
     if item.get('type') == 'episode' or item.get('show') is not None:
         # Episodes carry show/publisher rather than album/artists.
@@ -211,7 +212,7 @@ def describe_queue(queue):
 
     marker_width = max(len(marker) for marker, _ in rows)
     return [
-        '{}  {}'.format(marker.rjust(marker_width), describe_queue_item(item))
+        '{}  {}'.format(marker.rjust(marker_width), describe_item(item))
         for marker, item in rows
     ]
 

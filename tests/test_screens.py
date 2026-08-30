@@ -345,22 +345,22 @@ def test_describe_queue_renders_an_episode():
     assert screens.describe_queue(queue) == ['1  Episode One :: The Show :: A Publisher']
 
 
-def test_describe_queue_recognises_an_episode_by_its_show_alone():
+def test_describe_item_recognises_an_episode_by_its_show_alone():
     """Not every episode payload carries type == 'episode'."""
     item = {'name': 'Episode One', 'show': {'name': 'The Show'}}
 
-    assert screens.describe_queue_item(item) == 'Episode One :: The Show'
+    assert screens.describe_item(item) == 'Episode One :: The Show'
 
 
-def test_describe_queue_omits_a_missing_album_and_artists():
+def test_describe_item_omits_a_missing_album_and_artists():
     item = {'type': 'track', 'name': 'Song', 'album': None, 'artists': []}
 
-    assert screens.describe_queue_item(item) == 'Song'
+    assert screens.describe_item(item) == 'Song'
 
 
-def test_describe_queue_names_an_item_it_cannot_describe():
+def test_describe_item_names_an_item_it_cannot_describe():
     """The row still holds a numbered slot, so it may not trail off blank."""
-    assert screens.describe_queue_item({'type': 'track'}) == 'unknown item'
+    assert screens.describe_item({'type': 'track'}) == 'unknown item'
 
 
 def test_describe_queue_keeps_one_item_on_one_row():
