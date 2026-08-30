@@ -92,6 +92,37 @@ def cache_data(spotify_client, config):
             json.dump(playlist, ofile)
 
 
+def read_playlist_names(config, playlist_ids):
+    """
+    Maps playlist id -> name out of the cache, for the ids asked for. A
+    playlist that is not cached -- someone else's, or one added since the last
+    update -- is simply absent from the result rather than an error: a name is
+    decoration on a row, and a stale cache must not be able to break a screen.
+
+    Opens only the files named, rather than reading the whole library the way
+    sink_all_tracks does, because a caller here holds a handful of ids.
+    """
+    playlist_dir = config['data_paths']['playlist_path']
+    names = {}
+    for playlist_id in set(playlist_ids):
+        # An id is a path segment here, and it reached us out of a uri in an
+        # API response rather than from this cache. A base62 Spotify id can
+        # hold neither, so anything that could climb out of the directory is
+        # not an id we have a file for anyway.
+        if not playlist_id or os.path.basename(playlist_id) != playlist_id:
+            continue
+        try:
+            with open(os.path.join(playlist_dir, playlist_id)) as ifi:
+                playlist = json.load(ifi)
+        except (OSError, ValueError):
+            # Missing, unreadable, or half-written by an interrupted update.
+            continue
+        name = playlist.get('name') if isinstance(playlist, dict) else None
+        if name:
+            names[playlist_id] = name
+    return names
+
+
 KEEP_BACKUPS = 3
 
 

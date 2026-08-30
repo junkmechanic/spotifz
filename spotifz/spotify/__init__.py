@@ -12,4 +12,4 @@ from .sink import (  # noqa: F401
     parse_track_line,
     sink_all_tracks,
 )
-from .storage import update_cache  # noqa: F401
+from .storage import read_playlist_names, update_cache  # noqa: F401

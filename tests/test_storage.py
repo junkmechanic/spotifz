@@ -8,6 +8,7 @@ from spotifz.spotify.storage import (
     extract_fields,
     iter_spotify_reponse,
     prune_backups,
+    read_playlist_names,
     update_cache,
 )
 
@@ -255,6 +256,68 @@ def test_cache_data_skips_a_track_whose_id_is_missing(config, make_track, capsys
     assert 'First' in capsys.readouterr().out
     # The playlist itself is still written, album included.
     assert os.path.exists(os.path.join(config['data_paths']['playlist_path'], 'pl-1'))
+
+
+# --- read_playlist_names -----------------------------------------------------
+
+
+def write_cached_playlist(config, playlist_id, contents):
+    playlist_dir = config['data_paths']['playlist_path']
+    os.makedirs(playlist_dir, exist_ok=True)
+    with open(os.path.join(playlist_dir, playlist_id), 'w') as ofile:
+        ofile.write(contents)
+
+
+def test_read_playlist_names_names_the_cached_playlists(config):
+    write_cached_playlist(config, 'pl-1', json.dumps({'id': 'pl-1', 'name': 'Road Trip'}))
+    write_cached_playlist(
+        config, 'pl-2', json.dumps({'id': 'pl-2', 'name': 'Late Night'})
+    )
+
+    assert read_playlist_names(config, ['pl-1', 'pl-2']) == {
+        'pl-1': 'Road Trip',
+        'pl-2': 'Late Night',
+    }
+
+
+def test_read_playlist_names_opens_only_the_ids_it_was_asked_for(config):
+    write_cached_playlist(config, 'pl-1', json.dumps({'name': 'Road Trip'}))
+    write_cached_playlist(config, 'pl-2', json.dumps({'name': 'Late Night'}))
+
+    assert read_playlist_names(config, ['pl-1']) == {'pl-1': 'Road Trip'}
+
+
+def test_read_playlist_names_omits_a_playlist_that_is_not_cached(config):
+    """
+    Someone else's playlist, or one added since the last update. The row loses
+    its name and keeps everything else.
+    """
+    assert read_playlist_names(config, ['pl-unknown']) == {}
+
+
+def test_read_playlist_names_survives_a_half_written_file(config):
+    """An update killed part way through leaves truncated JSON behind."""
+    write_cached_playlist(config, 'pl-1', '{"id": "pl-1", "na')
+
+    assert read_playlist_names(config, ['pl-1']) == {}
+
+
+def test_read_playlist_names_survives_a_file_that_is_not_an_object(config):
+    write_cached_playlist(config, 'pl-1', json.dumps(['Road Trip']))
+
+    assert read_playlist_names(config, ['pl-1']) == {}
+
+
+def test_read_playlist_names_ignores_an_id_that_is_not_a_path_segment(config):
+    """
+    The id arrives inside a uri from an API response, and is used to name a
+    file. Nothing that could address a file outside the cache is looked up.
+    """
+    assert read_playlist_names(config, ['../../etc/passwd', '', '.']) == {}
+
+
+def test_read_playlist_names_takes_no_offence_at_a_missing_cache(config):
+    assert read_playlist_names(config, ['pl-1']) == {}
 
 
 def test_prune_backups_keeps_only_the_newest(tmp_path):
