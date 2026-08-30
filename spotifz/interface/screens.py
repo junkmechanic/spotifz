@@ -1,4 +1,6 @@
 from collections import Counter
+from datetime import datetime, timezone
+from typing import NamedTuple, Optional
 
 from spotipy import SpotifyException
 
@@ -215,6 +217,156 @@ def describe_queue(queue):
         '{}  {}'.format(marker.rjust(marker_width), describe_item(item))
         for marker, item in rows
     ]
+
+
+# Contexts a track can be resumed *inside*. Spotify accepts the `offset` that
+# starts a context at a chosen track only for these two, so an artist or a
+# Liked Songs context would start somewhere the user did not pick.
+RESUMABLE_CONTEXTS = ('playlist', 'album')
+PLAYLIST_URI_PREFIX = 'spotify:playlist:'
+
+
+class HistoryEntry(NamedTuple):
+    """
+    One play out of the history. `track_id` and `name` are spelled the way
+    TrackRef spells them, which is what lets play_track and add_to_queue take
+    an entry without knowing which list it was picked from.
+    """
+
+    display: str
+    track_id: str
+    context_uri: Optional[str]
+    context_type: Optional[str]
+    context_name: Optional[str]
+    played_at: str
+
+    @property
+    def name(self):
+        # Cosmetic, for the fzf prompt only, as on TrackRef.
+        return self.display.split(spotify.DISPLAY_SEPARATOR)[0]
+
+    @property
+    def is_resumable(self):
+        return self.context_uri is not None and self.context_type in RESUMABLE_CONTEXTS
+
+
+def context_playlist_id(context):
+    """
+    The playlist id out of a context, or None for a context that is not a
+    playlist -- an album, an artist, Liked Songs, or no context at all, which
+    is what a track played from a radio or from search arrives with.
+    """
+    uri = (context or {}).get('uri') or ''
+    if not uri.startswith(PLAYLIST_URI_PREFIX):
+        return None
+    return uri[len(PLAYLIST_URI_PREFIX) :] or None
+
+
+def history_entries(response, playlist_names=None):
+    """
+    Maps the recently-played response onto entries. `playlist_names` is handed
+    in rather than read here, so this stays a pure function of the response and
+    the caller owns the one cache read.
+    """
+    playlist_names = playlist_names or {}
+    entries = []
+    for item in (response or {}).get('items') or []:
+        track = (item or {}).get('track')
+        if not track:
+            continue
+        context = item.get('context') or None
+        playlist_id = context_playlist_id(context)
+        # Only a playlist is named on the row: an album is already the row's
+        # second field, and an artist or Liked Songs adds nothing the row does
+        # not carry.
+        context_name = playlist_names.get(playlist_id) if playlist_id else None
+
+        display = describe_item(track)
+        if context_name:
+            display += spotify.DISPLAY_SEPARATOR + _one_line(context_name)
+        entries.append(
+            HistoryEntry(
+                display=display,
+                track_id=track.get('id'),
+                context_uri=(context or {}).get('uri'),
+                context_type=(context or {}).get('type'),
+                context_name=context_name,
+                played_at=item.get('played_at') or '',
+            )
+        )
+    return entries
+
+
+def history_playlist_ids(response):
+    """The playlist ids a response refers to, for the caller's cache read."""
+    ids = (
+        context_playlist_id((item or {}).get('context'))
+        for item in (response or {}).get('items') or []
+    )
+    return [playlist_id for playlist_id in ids if playlist_id]
+
+
+# Spotify sends `2026-08-29T21:14:03.123Z`. datetime.fromisoformat only accepts
+# that trailing Z from 3.11, and this package supports 3.9, so the fixed prefix
+# is parsed instead -- which is indifferent to the Z and to how many fractional
+# digits came with it.
+PLAYED_AT_FORMAT = '%Y-%m-%dT%H:%M:%S'
+PLAYED_AT_LENGTH = 19
+
+
+def _parse_played_at(played_at):
+    try:
+        parsed = datetime.strptime(played_at[:PLAYED_AT_LENGTH], PLAYED_AT_FORMAT)
+    except (TypeError, ValueError):
+        return None
+    return parsed.replace(tzinfo=timezone.utc)
+
+
+def played_ago(played_at, now):
+    """
+    How long ago, compactly. Empty for a timestamp that will not parse, so a
+    row that Spotify described oddly loses its suffix rather than the screen.
+    """
+    parsed = _parse_played_at(played_at)
+    if parsed is None:
+        return ''
+
+    seconds = (now - parsed).total_seconds()
+    if seconds < 0:
+        # Clock skew between here and Spotify. 'in 3 minutes' would be absurd
+        # on a history, so the newest row just reads as the newest.
+        return 'just now'
+    minutes, hours, days = seconds // 60, seconds // 3600, seconds // 86400
+    if minutes < 1:
+        return 'just now'
+    if hours < 1:
+        return '{:.0f}m ago'.format(minutes)
+    if days < 1:
+        return '{:.0f}h ago'.format(hours)
+    if days < 2:
+        return 'yesterday'
+    return '{:.0f}d ago'.format(days)
+
+
+def describe_history(entries, now):
+    """
+    Builds the display rows for the play history, newest first as Spotify
+    returns it. Numbered the way the queue is: the number is a position on
+    screen, and it is also what keeps two plays of the same track from
+    rendering as the same row.
+    """
+    if not entries:
+        return []
+
+    marker_width = len(str(len(entries)))
+    rows = []
+    for position, entry in enumerate(entries, 1):
+        row = '{}  {}'.format(str(position).rjust(marker_width), entry.display)
+        ago = played_ago(entry.played_at, now)
+        if ago:
+            row += '  ({})'.format(ago)
+        rows.append(row)
+    return rows
 
 
 @screen
